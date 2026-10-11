@@ -3,17 +3,57 @@ import Link from "next/link";
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Moon, Search, Sun } from "lucide-react";
+import { Menu, Moon, Search, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Home" },
+  { href: "/briefing", label: "Briefing" },
   { href: "/blindspot", label: "Blindspot" },
   { href: "/sources", label: "Sources" },
+  { href: "/diet", label: "My diet" },
   { href: "/admin", label: "Admin" },
 ];
+
+function isActive(href: string, pathname: string) {
+  if (href === "/") return pathname === "/";
+  // "/sources" also covers the singular "/source/[id]" profile pages
+  return pathname.startsWith(href.replace(/s$/, ""));
+}
+
+/** Below lg the links don't fit beside search, so they move into a menu. */
+function NavMenu({ pathname }: { pathname: string }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Open menu" className="lg:hidden">
+          <Menu />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        {NAV.map((n) => (
+          <DropdownMenuItem key={n.href} asChild>
+            <Link
+              href={n.href}
+              aria-current={isActive(n.href, pathname) ? "page" : undefined}
+              className={cn(isActive(n.href, pathname) && "font-semibold")}
+            >
+              {n.label}
+            </Link>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -69,29 +109,26 @@ export function SiteHeader() {
   const pathname = usePathname();
   return (
     <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4 sm:gap-6">
-        {/* On the narrowest phones the "Home" nav link stands in for the logo */}
-        <Link href="/" aria-label="GroundedNews home" className="flex items-center gap-2 font-heading text-lg font-bold tracking-tight max-[379px]:hidden">
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
+        <Link href="/" aria-label="GroundedNews home" className="flex items-center gap-2 font-heading text-lg font-bold tracking-tight">
           {/* Mark: the three coverage colours */}
           <span aria-hidden className="flex h-4 w-5 overflow-hidden rounded-sm">
             <span className="flex-1 bg-bias-left" />
             <span className="flex-1 bg-bias-center" />
             <span className="flex-1 bg-bias-right" />
           </span>
-          {/* Wordmark drops on very narrow screens so the nav fits */}
-          <span className="hidden min-[440px]:inline">GroundedNews</span>
+          GroundedNews
         </Link>
-        <nav className="flex items-center gap-0.5 text-sm sm:gap-1">
+        <nav className="hidden items-center gap-1 text-sm lg:flex">
           {NAV.map((n) => {
-            // "/sources" also covers the singular "/source/[id]" profile pages
-            const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href.replace(/s$/, ""));
+            const active = isActive(n.href, pathname);
             return (
               <Link
                 key={n.href}
                 href={n.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "rounded-md px-1.5 py-1.5 font-medium sm:px-2.5 text-muted-foreground transition-colors hover:text-foreground",
+                  "rounded-md px-2.5 py-1.5 font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground",
                   active && "bg-muted text-foreground"
                 )}
               >
@@ -100,9 +137,10 @@ export function SiteHeader() {
             );
           })}
         </nav>
-        <div className="ml-auto flex items-center sm:gap-1">
+        <div className="ml-auto flex items-center gap-1">
           {pathname !== "/search" && <HeaderSearch />}
           <ThemeToggle />
+          <NavMenu pathname={pathname} />
         </div>
       </div>
     </header>

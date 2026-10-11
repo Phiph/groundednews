@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { api, type ClusterSourceDetail, type Side } from "@/lib/api";
 import { useApi } from "@/lib/use-api";
+import { recordArticleClick, recordStoryView } from "@/lib/reading-history";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/format";
 import { SIDES, SIDE_BORDER, SIDE_LABELS, SIDE_TEXT, sideOf } from "@/lib/bias";
@@ -14,6 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BiasBar } from "@/components/news/bias-bar";
 import { BlindspotBadge } from "@/components/news/blindspot-badge";
+import { FramingCard } from "@/components/news/framing-card";
 import { OpinionBadge } from "@/components/news/opinion-badge";
 import { StoryCard } from "@/components/news/story-card";
 import { StoryTimeline } from "@/components/news/story-timeline";
@@ -27,6 +29,11 @@ export default function StoryPage() {
   const related = useApi(`related-${id}-${firstTag}`, () =>
     firstTag ? api.getClusters({ tag: firstTag, sort: "top", limit: 7 }) : Promise.resolve([])
   );
+  // Remember the visit for "My news diet" (this browser only), once per story
+  useEffect(() => {
+    if (s) recordStoryView(s);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s?.id]);
 
   if (story.error) {
     return <p className="py-16 text-center text-muted-foreground">Story not found. <Link href="/" className="underline">Back to home</Link></p>;
@@ -101,6 +108,7 @@ export default function StoryPage() {
             )}
           </CardContent>
         </Card>
+        <FramingCard framing={s.framing} />
         <StoryTimeline sources={s.sources} />
       </div>
 
@@ -175,6 +183,9 @@ function SideColumn({ side, items }: { side: Side | null; items: ClusterSourceDe
 }
 
 function ArticleItem({ a }: { a: ClusterSourceDetail }) {
+  const { id } = useParams<{ id: string }>();
+  // Left or middle click; auxclick also fires for right-click, which isn't a read
+  const record = (e: { button: number }) => e.button <= 1 && recordArticleClick(a, Number(id));
   return (
     <li className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -189,6 +200,8 @@ function ArticleItem({ a }: { a: ClusterSourceDetail }) {
         href={a.url}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={record}
+        onAuxClick={record}
         className="group inline font-medium leading-snug hover:underline"
       >
         {a.title}

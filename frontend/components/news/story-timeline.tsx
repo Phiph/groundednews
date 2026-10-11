@@ -1,10 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
+import { useParams } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import type { ClusterSource, Side } from "@/lib/api";
 import { SIDES, SIDE_BG, SIDE_LABELS, SIDE_TEXT, sideOf } from "@/lib/bias";
 import { formatClock, formatGap, parseDate } from "@/lib/format";
+import { recordArticleClick } from "@/lib/reading-history";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,10 @@ type Item = ClusterSource & { side: Side | null; at: number };
  */
 export function StoryTimeline({ sources }: { sources: ClusterSource[] }) {
   const [expanded, setExpanded] = useState(false);
+  // Rendered on the story page, so the route id is the story these articles belong to
+  const { id: storyId } = useParams<{ id: string }>();
+  // Left or middle click; auxclick also fires for right-click, which isn't a read
+  const record = (a: ClusterSource, button: number) => button <= 1 && recordArticleClick(a, Number(storyId));
   const items: Item[] = sources
     .filter((a) => a.published_at)
     .map((a) => ({ ...a, side: sideOf(a.bias_label), at: parseDate(a.published_at!).getTime() }))
@@ -91,6 +97,8 @@ export function StoryTimeline({ sources }: { sources: ClusterSource[] }) {
                 href={a.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => record(a, e.button)}
+                onAuxClick={(e) => record(a, e.button)}
                 className="group text-sm leading-snug hover:underline"
               >
                 {a.title}
