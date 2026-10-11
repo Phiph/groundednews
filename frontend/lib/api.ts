@@ -23,12 +23,16 @@ export interface BiasBreakdown {
   blindspot: "left" | "right" | null;
 }
 
+/** How each side's outlets framed a story; only sides that covered it, and {} until written. */
+export type Framing = Partial<Record<Side, string>>;
+
 export interface Cluster {
   id: number;
   headline: string;
   summary: string;
   category: string;
   tags: string[];
+  framing: Framing;
   image_url?: string;
   bias: BiasBreakdown;
   /** Only opinion pieces so far, no straight reporting */
@@ -107,6 +111,27 @@ export interface SourceProfile {
   missed: Cluster[];
 }
 
+export interface Briefing {
+  /** The 24h window, ending at the newest story */
+  window_start: string | null;
+  window_end: string | null;
+  /** Top 10 news stories (no opinion-only) with 2+ outlets, best first */
+  stories: Cluster[];
+  /** Up to 3 per side, from the wider 72h window */
+  blindspots: { left: Cluster[]; right: Cluster[] };
+  tags: TagCount[];
+  totals: { stories: number; articles: number; outlets: number };
+}
+
+/** One day of clustering quality, by when stories first appeared (UTC) */
+export interface QualityDay {
+  date: string;
+  stories: number;
+  multi_source: number;
+  /** multi_source / stories, 0–1 */
+  share: number;
+}
+
 export interface SearchResults {
   total: number;
   results: Cluster[];
@@ -174,5 +199,7 @@ export const api = {
   triggerScrape: () => apiFetch<{ status: string }>("/api/scrape", { method: "POST" }),
   getScrapeStatus: () => apiFetch<{ running: boolean }>("/api/scrape/status"),
   getStats: () => apiFetch<Stats>("/api/stats"),
+  getBriefing: () => apiFetch<Briefing>("/api/briefing"),
+  getQuality: (days = 14) => apiFetch<QualityDay[]>(`/api/stats/quality?days=${days}`),
   getTags: (days = 7) => apiFetch<TagCount[]>(`/api/tags?days=${days}`),
 };

@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from database import init_db, seed_sources, get_session
 from models import Source, Article, Cluster, ScrapeRun
 from fetch_articles import fetch_new_articles
+from bias import BLINDSPOT_MIN_SOURCES, bias_breakdown, top_score as _top_score
+from timeutil import utcnow
 
 
 @asynccontextmanager
@@ -35,32 +37,6 @@ app.add_middleware(
 
 
 # ── Clusters ────────────────────────────────────────────────────────────────
-
-# Ground News-style buckets: leaning outlets count toward their side
-BIAS_BUCKETS = {"left": "left", "center-left": "left", "center": "center",
-                "center-right": "right", "right": "right"}
-BLINDSPOT_MIN_SOURCES = 3
-BLINDSPOT_SHARE = 0.7
-
-
-def _bias(sources: list[dict]) -> dict:
-    """Distinct-outlet counts per side, plus which side (if any) is ignoring the story."""
-    outlets: dict[str, str] = {}
-    for s in sources:
-        outlets[s["source_name"]] = BIAS_BUCKETS.get(s["bias_label"], "unknown")
-    counts = {"left": 0, "center": 0, "right": 0, "unknown": 0}
-    for side in outlets.values():
-        counts[side] += 1
-    total = len(outlets)
-    blindspot = None
-    if total >= BLINDSPOT_MIN_SOURCES:
-        # "Blindspot for the right" = covered almost entirely by the left, and vice versa
-        if counts["right"] == 0 and counts["left"] / total >= BLINDSPOT_SHARE:
-            blindspot = "right"
-        elif counts["left"] == 0 and counts["right"] / total >= BLINDSPOT_SHARE:
-            blindspot = "left"
-    return {**counts, "blindspot": blindspot}
-
 
 def _serialize(cluster: Cluster, rows: list[tuple[Article, Source]], with_summaries: bool = False) -> dict:
     sources = []
@@ -85,12 +61,14 @@ def _serialize(cluster: Cluster, rows: list[tuple[Article, Source]], with_summar
         "summary": cluster.summary,
         "category": cluster.category,
         "tags": json.loads(cluster.tags or "[]"),
+        # How each side framed it, e.g. {"left": "...", "right": "..."}; {} until written
+        "framing": json.loads(cluster.framing or "{}"),
         "image_url": cluster.image_url or next((a.image_url for a, _ in rows if a.image_url), ""),
         "article_count": cluster.article_count,
         "source_count": cluster.source_count,
         "first_seen": cluster.first_seen,
         "last_updated": cluster.last_updated,
-        "bias": _bias(sources),
+        "bias": bias_breakdown(sources),
         # Only opinion pieces so far, no straight reporting
         "is_opinion": bool(rows) and all(a.is_opinion for a, _ in rows),
         "sources": sources,
@@ -119,20 +97,6 @@ def _story_ids(*conditions):
     """Subquery of story ids with an article matching `conditions`. Unclustered articles are
     excluded: a NULL in the list would make NOT IN match nothing."""
     return select(Article.cluster_id).where(Article.cluster_id.is_not(None), *conditions)
-
-
-SPECTRUM_BONUS = 0.25    # per extra side (left/center/right) covering the story
-OPINION_ONLY_WEIGHT = 0.25  # stories with no straight reporting yet sink below news
-
-
-def _top_score(story: dict, newest: datetime) -> float:
-    """Wider coverage ranks higher, especially coverage from across the spectrum;
-    older stories decay over roughly a day."""
-    hours_old = max((newest - story["last_updated"]).total_seconds() / 3600, 0)
-    coverage = story["source_count"] ** 1.3 + 0.2 * story["article_count"]
-    sides = sum(1 for side in ("left", "center", "right") if story["bias"][side])
-    score = coverage * (1 + SPECTRUM_BONUS * max(sides - 1, 0)) / (1 + hours_old / 18)
-    return score * OPINION_ONLY_WEIGHT if story["is_opinion"] else score
 
 
 @app.get("/api/clusters")
@@ -226,7 +190,7 @@ def search(
     else:
         # Best match first, favouring widely covered stories (sqrt, so 9 outlets weigh 3x one)
         # and, gently, recent ones (a week-old story needs a ~2x better match)
-        now = datetime.utcnow()
+        now = utcnow()
         clusters.sort(
             key=lambda c: relevance[c.id] * c.source_count ** 0.5
             / (1 + (now - c.last_updated).total_seconds() / 86400 / 7),
@@ -237,10 +201,69 @@ def search(
     return {"total": len(clusters), "results": [_serialize(c, grouped[c.id]) for c in page]}
 
 
+BRIEFING_WINDOW = timedelta(hours=24)
+
+
+@app.get("/api/briefing")
+def briefing(session: Session = Depends(get_session)):
+    """The day in brief: the most widely covered news across the spectrum, each side's biggest
+    blindspot, and the threads in motion. The window ends at the newest story, not now,
+    so it still reads well if fetching paused."""
+    newest = session.exec(select(Cluster.last_updated).order_by(Cluster.last_updated.desc())).first()
+    if not newest:
+        return {"window_start": None, "window_end": None, "stories": [], "blindspots": {"left": [], "right": []},
+                "tags": [], "totals": {"stories": 0, "articles": 0, "outlets": 0}}
+    start = newest - BRIEFING_WINDOW
+    # Blindspots are rarer, so they're drawn from the wider Top-feed window
+    clusters = session.exec(select(Cluster).where(Cluster.last_updated >= newest - TOP_WINDOW)).all()
+    grouped = _articles_by_cluster(session, [c.id for c in clusters])
+    wide = sorted((_serialize(c, grouped[c.id]) for c in clusters), key=lambda r: -_top_score(r, newest))
+    ranked = [r for r in wide if r["last_updated"] >= start]
+    stories = ranked
+
+    tags = Counter(t for r in stories for t in r["tags"])
+    return {
+        "window_start": start,
+        "window_end": newest,
+        # News only, and only stories at least two outlets picked up
+        "stories": [r for r in ranked if not r["is_opinion"] and r["source_count"] >= 2][:10],
+        "blindspots": {
+            side: [r for r in wide if r["bias"]["blindspot"] == side][:3] for side in ("left", "right")
+        },
+        "tags": [{"tag": t, "count": n} for t, n in tags.most_common(8)],
+        "totals": {
+            "stories": len(stories),
+            "articles": sum(r["article_count"] for r in stories),
+            "outlets": len({src["source_id"] for r in stories for src in r["sources"]}),
+        },
+    }
+
+
+@app.get("/api/stats/quality")
+def clustering_quality(days: int = 14, session: Session = Depends(get_session)):
+    """Per day (UTC, by when a story first appeared): how many stories there were and how
+    many ended up with two or more outlets, i.e. how well feeds overlap and clustering matches."""
+    cutoff = utcnow() - timedelta(days=days)
+    rows = session.exec(
+        select(
+            func.date(Cluster.first_seen),
+            func.count(Cluster.id),
+            func.sum(Cluster.source_count >= 2, type_=Integer),
+        )
+        .where(Cluster.first_seen >= cutoff)
+        .group_by(func.date(Cluster.first_seen))
+        .order_by(func.date(Cluster.first_seen))
+    ).all()
+    return [
+        {"date": day, "stories": n, "multi_source": multi or 0, "share": round((multi or 0) / n, 3)}
+        for day, n, multi in rows
+    ]
+
+
 @app.get("/api/tags")
 def list_tags(days: int = 7, limit: int = 20, session: Session = Depends(get_session)):
     """Most active ongoing-story tags, by number of stories updated in the last `days`."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = utcnow() - timedelta(days=days)
     counts: dict[str, int] = {}
     for tags in session.exec(select(Cluster.tags).where(Cluster.last_updated >= cutoff)).all():
         for t in json.loads(tags or "[]"):
@@ -259,7 +282,7 @@ def _article_time():
 @app.get("/api/sources/summary")
 def sources_summary(days: int = 7, session: Session = Depends(get_session)):
     """Per-outlet activity over the last `days`, for the outlets index."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = utcnow() - timedelta(days=days)
     rows = session.exec(
         select(
             Article.source_id,
@@ -293,7 +316,7 @@ def source_profile(source_id: int, days: int = 30, session: Session = Depends(ge
     source = session.get(Source, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = utcnow() - timedelta(days=days)
     articles = session.exec(
         select(Article).where(Article.source_id == source_id, _article_time() >= cutoff)
     ).all()

@@ -5,6 +5,7 @@ import httpx
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional
+from timeutil import utcnow
 
 # Feed items that aren't news stories: promos, app/stream links, podcasts, show rundowns
 JUNK_URL_PATTERNS = [
@@ -60,7 +61,7 @@ def parse_date(entry) -> Optional[datetime]:
         parsed = entry.get(field)
         if parsed:
             # Clamp feeds that post-date items into the future
-            return min(datetime(*parsed[:6]), datetime.utcnow())
+            return min(datetime(*parsed[:6]), utcnow())
     return None
 
 

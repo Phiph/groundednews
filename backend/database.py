@@ -13,7 +13,12 @@ _ADDED_COLUMNS = {
         "last_success": "DATETIME",
         "last_new_article": "DATETIME",
     },
-    "cluster": {"image_url": "VARCHAR NOT NULL DEFAULT ''", "tags": "VARCHAR NOT NULL DEFAULT '[]'"},
+    "cluster": {
+        "image_url": "VARCHAR NOT NULL DEFAULT ''",
+        "tags": "VARCHAR NOT NULL DEFAULT '[]'",
+        "framing": "VARCHAR NOT NULL DEFAULT '{}'",
+        "framing_updated": "DATETIME",
+    },
 }
 
 

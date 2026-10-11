@@ -8,6 +8,7 @@ from scraper import scrape_feed
 from analyzer import cluster_articles
 from config import MAX_ARTICLES_PER_SCRAPE
 import traceback
+from timeutil import utcnow
 
 
 def run_pipeline(session: Session) -> ScrapeRun:
@@ -44,7 +45,7 @@ def run_pipeline(session: Session) -> ScrapeRun:
                 all_new_articles.append(article)
                 run.articles_new += 1
 
-            source.last_scraped = datetime.utcnow()
+            source.last_scraped = utcnow()
             source.article_count = len(raw)
 
         session.commit()
@@ -98,14 +99,14 @@ def run_pipeline(session: Session) -> ScrapeRun:
             session.commit()
 
         run.status = "success"
-        run.finished_at = datetime.utcnow()
+        run.finished_at = utcnow()
         session.add(run)
         session.commit()
 
     except Exception as e:
         run.status = "failed"
         run.error = traceback.format_exc()[:1000]
-        run.finished_at = datetime.utcnow()
+        run.finished_at = utcnow()
         session.add(run)
         session.commit()
         print(f"Pipeline error: {e}")

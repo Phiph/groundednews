@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from sqlmodel import Field, SQLModel, Relationship
+from timeutil import utcnow
 
 
 class Source(SQLModel, table=True):
@@ -10,7 +11,7 @@ class Source(SQLModel, table=True):
     home_url: str = ""
     bias_label: str = ""  # e.g. "left", "center", "right"
     enabled: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
     last_scraped: Optional[datetime] = None
     article_count: int = 0                         # items in the feed on the last fetch
     # Feed health
@@ -32,7 +33,7 @@ class Article(SQLModel, table=True):
     published_at: Optional[datetime] = None
     image_url: str = ""
     is_opinion: bool = False      # opinion/editorial/review rather than straight reporting
-    scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: datetime = Field(default_factory=utcnow)
 
     source: Optional[Source] = Relationship(back_populates="articles")
     cluster: Optional["Cluster"] = Relationship(back_populates="articles")
@@ -45,17 +46,21 @@ class Cluster(SQLModel, table=True):
     category: str = ""            # e.g. "Politics", "Tech", "World"
     image_url: str = ""           # lead image, taken from one of its articles
     tags: str = "[]"              # JSON list of ongoing-story tags, e.g. ["Iran war"]
+    # JSON {"left": ..., "center": ..., "right": ...}: how each side framed the story,
+    # written by the Claude session for stories covered across the spectrum
+    framing: str = "{}"
+    framing_updated: Optional[datetime] = None
     article_count: int = 0
     source_count: int = 0
-    first_seen: datetime = Field(default_factory=datetime.utcnow)
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    first_seen: datetime = Field(default_factory=utcnow)
+    last_updated: datetime = Field(default_factory=utcnow)
 
     articles: list[Article] = Relationship(back_populates="cluster")
 
 
 class ScrapeRun(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=utcnow)
     finished_at: Optional[datetime] = None
     articles_fetched: int = 0
     articles_new: int = 0

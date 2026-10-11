@@ -16,10 +16,14 @@ from sqlmodel import Session, select
 from database import init_db, seed_sources, engine
 from models import Source, Article, Cluster, ScrapeRun
 from scraper import fetch_feeds, fetch_og_images
+from backup_db import backup
+from timeutil import utcnow
 
 # Unclustered articles older than this are considered stale and left alone;
 # clusters updated within it are offered as merge targets
 PENDING_WINDOW = timedelta(hours=48)
+# Older stories offered as merge targets via their tags (see recent_clusters)
+TAG_STORY_WINDOW = timedelta(days=14)
 # Feeds keep old items around (and new sources bring a backlog); skip anything older than this
 MAX_ARTICLE_AGE = timedelta(days=3)
 
@@ -35,7 +39,7 @@ def fetch_new_articles(session: Session) -> ScrapeRun:
 
     sources = session.exec(select(Source).where(Source.enabled == True)).all()
     added: list[Article] = []
-    now = datetime.utcnow()
+    now = utcnow()
     too_old = now - MAX_ARTICLE_AGE
     failures = []
 
@@ -88,7 +92,7 @@ def fetch_new_articles(session: Session) -> ScrapeRun:
 
     run.error = "; ".join(failures)
     run.status = "failed" if sources and len(failures) == len(sources) else "fetched"
-    run.finished_at = datetime.utcnow()
+    run.finished_at = utcnow()
     session.add(run)
     session.commit()
     session.refresh(run)
@@ -97,7 +101,7 @@ def fetch_new_articles(session: Session) -> ScrapeRun:
 
 def pending_articles(session: Session) -> list[dict]:
     """Recent articles that haven't been assigned to a cluster yet."""
-    cutoff = datetime.utcnow() - PENDING_WINDOW
+    cutoff = utcnow() - PENDING_WINDOW
     rows = session.exec(
         select(Article, Source)
         .join(Source, Article.source_id == Source.id)
@@ -119,22 +123,39 @@ def pending_articles(session: Session) -> list[dict]:
 
 
 def recent_clusters(session: Session) -> list[dict]:
-    """Clusters updated recently, offered to the agent so follow-ups can be merged in."""
-    cutoff = datetime.utcnow() - PENDING_WINDOW
+    """Stories the agent can merge follow-ups into: everything updated recently, plus the
+    latest story for each active tag even if older, so long-running stories (a trial, a war)
+    keep growing instead of restarting as a new story after a quiet couple of days."""
+    cutoff = utcnow() - PENDING_WINDOW
     recent_ids = select(Article.cluster_id).where(Article.scraped_at >= cutoff)
-    clusters = session.exec(
+    clusters = list(session.exec(
         select(Cluster).where(Cluster.id.in_(recent_ids)).order_by(Cluster.id)
+    ).all())
+
+    seen = {c.id for c in clusters}
+    tagged = session.exec(
+        select(Cluster)
+        .where(Cluster.last_updated >= utcnow() - TAG_STORY_WINDOW, Cluster.tags != "[]")
+        .order_by(Cluster.last_updated.desc())
     ).all()
+    covered_tags = {t for c in clusters for t in json.loads(c.tags or "[]")}
+    for c in tagged:  # newest first, so the first story seen for a tag is its latest
+        new_tags = [t for t in json.loads(c.tags or "[]") if t not in covered_tags]
+        if new_tags and c.id not in seen:
+            clusters.append(c)
+            seen.add(c.id)
+        covered_tags.update(new_tags)
+
     return [
         {"cluster_id": c.id, "headline": c.headline, "category": c.category,
-         "tags": json.loads(c.tags or "[]")}
+         "tags": json.loads(c.tags or "[]"), "last_updated": c.last_updated.strftime("%Y-%m-%d")}
         for c in clusters
     ]
 
 
 def active_tags(session: Session, days: int = 14) -> list[str]:
     """Tags already in use recently, so the agent reuses names instead of inventing variants."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = utcnow() - timedelta(days=days)
     counts: dict[str, int] = {}
     for tags in session.exec(select(Cluster.tags).where(Cluster.last_updated >= cutoff)).all():
         for t in json.loads(tags or "[]"):
@@ -144,6 +165,8 @@ def active_tags(session: Session, days: int = 14) -> list[str]:
 
 def fetch_and_store():
     init_db()
+    # The scheduled task runs this every few hours; the first run each day takes the backup
+    backup()
     with Session(engine) as session:
         run = fetch_new_articles(session)
         pending = pending_articles(session)

@@ -20,6 +20,10 @@ JSON format:
       # tags are added to the story's existing ones)
     "cluster_id": 812,
     "article_ids": [9]
+  },
+  {   # framing only (no article_ids): how each side covered an existing story
+    "cluster_id": 812,
+    "framing": {"left": "...", "center": "...", "right": "..."}
   }
 ]
 """
@@ -33,6 +37,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 from database import init_db, engine
 from models import Article, Cluster, ScrapeRun
+from timeutil import utcnow
 
 
 def _refresh_counts(session: Session, cluster: Cluster):
@@ -49,10 +54,29 @@ def _refresh_counts(session: Session, cluster: Cluster):
         cluster.image_url = next((a.image_url for a in articles if a.image_url), "")
 
 
+FRAMING_SIDES = ("left", "center", "right")
+
+
+def _set_framing(cluster: Cluster, framing: dict):
+    cleaned = {side: str(framing[side]).strip() for side in FRAMING_SIDES if framing.get(side)}
+    cluster.framing = json.dumps(cleaned)
+    cluster.framing_updated = utcnow()
+
+
 def save_clusters(run_id: int, clusters_data: list):
-    created = updated = removed = 0
+    created = updated = removed = framed = 0
     with Session(engine) as session:
         for c in clusters_data:
+            if c.get("framing") and not c.get("article_ids"):
+                cluster = session.get(Cluster, c.get("cluster_id"))
+                if not cluster:
+                    print(f"Warning: cluster {c.get('cluster_id')} not found; framing skipped", file=sys.stderr)
+                    continue
+                _set_framing(cluster, c["framing"])
+                session.add(cluster)
+                framed += 1
+                continue
+
             articles = [session.get(Article, aid) for aid in c.get("article_ids", [])]
             articles = [a for a in articles if a]
             if not articles:
@@ -79,6 +103,9 @@ def save_clusters(run_id: int, clusters_data: list):
                     tags=json.dumps(c.get("tags", [])),
                 )
                 created += 1
+            if c.get("framing"):
+                _set_framing(cluster, c["framing"])
+                framed += 1
             session.add(cluster)
             session.flush()
 
@@ -110,11 +137,12 @@ def save_clusters(run_id: int, clusters_data: list):
             run.clusters_created += created
             run.clusters_updated += updated
             run.status = "success"
-            run.finished_at = datetime.utcnow()
+            run.finished_at = utcnow()
             session.add(run)
 
         session.commit()
-    print(json.dumps({"clusters_created": created, "clusters_updated": updated, "clusters_removed": removed}))
+    print(json.dumps({"clusters_created": created, "clusters_updated": updated,
+                      "clusters_removed": removed, "framings_written": framed}))
 
 
 def _load(arg: str) -> list:
