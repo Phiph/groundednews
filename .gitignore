@@ -1,0 +1,22 @@
+# Secrets
+.env
+.groundednews_env
+
+# Python environments and caches
+venv/
+venv-py39/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Data: the live database and its backups stay local
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backups/
+
+# Local Claude settings
+.claude/settings.local.json
+
+.DS_Store

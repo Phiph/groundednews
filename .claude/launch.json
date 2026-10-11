@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "groundednews-frontend",
+      "url": "http://localhost:3000"
+    },
+    {
+      "name": "groundednews-backend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd backend && ../venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload"],
+      "port": 8000
+    }
+  ]
+}
