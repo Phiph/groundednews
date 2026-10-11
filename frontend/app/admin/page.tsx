@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useSWRConfig } from "swr";
 import { AlertTriangle, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { api, type Source } from "@/lib/api";
 import { feedHealth, type FeedHealth, type HealthLevel } from "@/lib/feed-health";
@@ -15,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ErrorBanner } from "@/components/error-banner";
 
 const BIAS_OPTIONS = ["left", "center-left", "center", "center-right", "right"];
 const EMPTY_FORM = { name: "", feed_url: "", home_url: "", bias_label: "center" };
@@ -26,12 +28,12 @@ const HEALTH_STYLES: Record<HealthLevel, string> = {
 };
 
 export default function AdminPage() {
-  // Bumping `version` refetches everything after a change
-  const [version, setVersion] = useState(0);
-  const refresh = () => setVersion((v) => v + 1);
-  const stats = useApi(`stats-${version}`, () => api.getStats());
-  const sources = useApi(`sources-${version}`, () => api.getSources());
-  const runs = useApi(`runs-${version}`, () => api.getRuns());
+  const stats = useApi("stats", () => api.getStats());
+  const sources = useApi("sources", () => api.getSources());
+  const runs = useApi("runs", () => api.getRuns());
+  // Refetch every cached response after a change: stories and summaries depend on sources too
+  const { mutate } = useSWRConfig();
+  const refresh = () => mutate(() => true);
 
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -83,9 +85,7 @@ export default function AdminPage() {
     <div className="space-y-8">
       <h1 className="font-heading text-3xl font-bold tracking-tight">Admin</h1>
 
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {/* Overview */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -12,6 +12,8 @@ _ADDED_COLUMNS = {
         "failure_streak": "INTEGER NOT NULL DEFAULT 0",
         "last_success": "DATETIME",
         "last_new_article": "DATETIME",
+        "etag": "VARCHAR NOT NULL DEFAULT ''",
+        "last_modified": "VARCHAR NOT NULL DEFAULT ''",
     },
     "cluster": {
         "image_url": "VARCHAR NOT NULL DEFAULT ''",
@@ -30,6 +32,10 @@ def init_db():
             for name, ddl in columns.items():
                 if name not in existing:
                     conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        # create_all() only indexes tables it creates, so add these to existing databases too
+        for table in SQLModel.metadata.sorted_tables:
+            for index in table.indexes:
+                index.create(conn, checkfirst=True)
         _init_search(conn)
 
 

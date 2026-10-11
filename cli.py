@@ -2,7 +2,7 @@
 """
 GroundedNews CLI
 Usage:
-  python cli.py scrape          - Fetch new articles and cluster with AI
+  python cli.py scrape          - Fetch new articles (clustering is done by the scheduled Claude task)
   python cli.py status          - Show latest stats and run history
   python cli.py sources         - List all configured sources
   python cli.py sources add     - Add a new RSS source interactively
@@ -26,10 +26,10 @@ def get_session():
 
 
 def cmd_scrape():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Starting scrape pipeline...")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching feeds...")
     session = get_session()
-    from pipeline import run_pipeline
-    run = run_pipeline(session)
+    from fetch_articles import fetch_new_articles
+    run = fetch_new_articles(session)
     session.close()
 
     print()
@@ -37,7 +37,6 @@ def cmd_scrape():
     print(f"  Status:           {run.status.upper()}")
     print(f"  Articles fetched: {run.articles_fetched}")
     print(f"  Articles new:     {run.articles_new}")
-    print(f"  Clusters created: {run.clusters_created}")
     if run.finished_at and run.started_at:
         elapsed = (run.finished_at - run.started_at).total_seconds()
         print(f"  Duration:         {elapsed:.1f}s")

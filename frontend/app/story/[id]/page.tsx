@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { ArrowLeft, ExternalLink } from "lucide-react";
-import { api, type ClusterSource, type Side } from "@/lib/api";
+import { api, type ClusterSourceDetail, type Side } from "@/lib/api";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/format";
@@ -154,7 +154,7 @@ function HeroImage({ src }: { src?: string }) {
   );
 }
 
-function SideColumn({ side, items }: { side: Side | null; items: ClusterSource[] }) {
+function SideColumn({ side, items }: { side: Side | null; items: ClusterSourceDetail[] }) {
   return (
     <div className="space-y-3">
       <div className={cn("flex items-center justify-between border-b-2 pb-1.5", side ? SIDE_BORDER[side] : "border-border")}>
@@ -174,7 +174,7 @@ function SideColumn({ side, items }: { side: Side | null; items: ClusterSource[]
   );
 }
 
-function ArticleItem({ a }: { a: ClusterSource }) {
+function ArticleItem({ a }: { a: ClusterSourceDetail }) {
   return (
     <li className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

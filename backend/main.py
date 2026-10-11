@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 import json
 import re
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
@@ -10,9 +11,10 @@ from sqlalchemy import Integer, func, text
 from sqlmodel import Session, select
 from pydantic import BaseModel
 
-from database import init_db, seed_sources, get_session
-from models import Source, Article, Cluster, ScrapeRun
-from fetch_articles import fetch_new_articles
+from database import engine, init_db, seed_sources, get_session
+from models import Source, SourcePublic, Article, Cluster, ScrapeRun, ScrapeRunPublic
+import schemas
+from fetch_articles import fetch_new_articles, tag_counts
 from bias import BLINDSPOT_MIN_SOURCES, bias_breakdown, top_score as _top_score
 from timeutil import utcnow
 
@@ -20,7 +22,7 @@ from timeutil import utcnow
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    with Session(__import__("database").engine) as s:
+    with Session(engine) as s:
         seed_sources(s)
     yield
 
@@ -29,7 +31,8 @@ app = FastAPI(title="GroundedNews API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    # Any local port, so a second checkout's frontend (e.g. a worktree on :3011) can reach it
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,7 +102,7 @@ def _story_ids(*conditions):
     return select(Article.cluster_id).where(Article.cluster_id.is_not(None), *conditions)
 
 
-@app.get("/api/clusters")
+@app.get("/api/clusters", response_model=list[schemas.Cluster])
 def list_clusters(
     category: Optional[str] = None,
     tag: Optional[str] = None,
@@ -122,8 +125,9 @@ def list_clusters(
     if source_id:
         q = q.where(Cluster.id.in_(_story_ids(Article.source_id == source_id)))
     if tag:
-        q = q.where(Cluster.tags.contains(json.dumps(tag)))
-    q = q.order_by(Cluster.last_updated.desc())
+        q = q.where(Cluster.tags.contains(json.dumps(tag), autoescape=True))
+    # id breaks ties so "Load more" pages never repeat or skip a story
+    q = q.order_by(Cluster.last_updated.desc(), Cluster.id.desc())
     if blindspot:
         q = q.where(Cluster.source_count >= BLINDSPOT_MIN_SOURCES)
 
@@ -151,7 +155,7 @@ def list_clusters(
     return result[offset:offset + limit]
 
 
-@app.get("/api/clusters/{cluster_id}")
+@app.get("/api/clusters/{cluster_id}", response_model=schemas.ClusterDetail)
 def get_cluster(cluster_id: int, session: Session = Depends(get_session)):
     cluster = session.get(Cluster, cluster_id)
     if not cluster:
@@ -163,7 +167,7 @@ def get_cluster(cluster_id: int, session: Session = Depends(get_session)):
 SEARCH_WEIGHTS = "10.0, 3.0, 5.0, 2.0"
 
 
-@app.get("/api/search")
+@app.get("/api/search", response_model=schemas.SearchResults)
 def search(
     q: str,
     sort: str = "relevance",  # "relevance" | "latest"
@@ -204,7 +208,7 @@ def search(
 BRIEFING_WINDOW = timedelta(hours=24)
 
 
-@app.get("/api/briefing")
+@app.get("/api/briefing", response_model=schemas.Briefing)
 def briefing(session: Session = Depends(get_session)):
     """The day in brief: the most widely covered news across the spectrum, each side's biggest
     blindspot, and the threads in motion. The window ends at the newest story, not now,
@@ -239,7 +243,7 @@ def briefing(session: Session = Depends(get_session)):
     }
 
 
-@app.get("/api/stats/quality")
+@app.get("/api/stats/quality", response_model=list[schemas.QualityDay])
 def clustering_quality(days: int = 14, session: Session = Depends(get_session)):
     """Per day (UTC, by when a story first appeared): how many stories there were and how
     many ended up with two or more outlets, i.e. how well feeds overlap and clustering matches."""
@@ -260,16 +264,10 @@ def clustering_quality(days: int = 14, session: Session = Depends(get_session)):
     ]
 
 
-@app.get("/api/tags")
+@app.get("/api/tags", response_model=list[schemas.TagCount])
 def list_tags(days: int = 7, limit: int = 20, session: Session = Depends(get_session)):
     """Most active ongoing-story tags, by number of stories updated in the last `days`."""
-    cutoff = utcnow() - timedelta(days=days)
-    counts: dict[str, int] = {}
-    for tags in session.exec(select(Cluster.tags).where(Cluster.last_updated >= cutoff)).all():
-        for t in json.loads(tags or "[]"):
-            counts[t] = counts.get(t, 0) + 1
-    ranked = sorted(counts.items(), key=lambda kv: -kv[1])[:limit]
-    return [{"tag": t, "count": n} for t, n in ranked]
+    return [{"tag": t, "count": n} for t, n in tag_counts(session, utcnow() - timedelta(days=days))[:limit]]
 
 
 # ── Sources ──────────────────────────────────────────────────────────────────
@@ -279,7 +277,7 @@ def _article_time():
     return func.coalesce(Article.published_at, Article.scraped_at)
 
 
-@app.get("/api/sources/summary")
+@app.get("/api/sources/summary", response_model=schemas.SourcesSummary)
 def sources_summary(days: int = 7, session: Session = Depends(get_session)):
     """Per-outlet activity over the last `days`, for the outlets index."""
     cutoff = utcnow() - timedelta(days=days)
@@ -309,7 +307,7 @@ def sources_summary(days: int = 7, session: Session = Depends(get_session)):
 MISSED_MIN_SOURCES = 4  # a story this widely covered is notable when an outlet skips it
 
 
-@app.get("/api/sources/{source_id}")
+@app.get("/api/sources/{source_id}", response_model=schemas.SourceProfile)
 def source_profile(source_id: int, days: int = 30, session: Session = Depends(get_session)):
     """How an outlet covers the news: volume, opinion share, topics, how often it breaks
     stories first, and the widely covered stories it skipped."""
@@ -360,7 +358,7 @@ def source_profile(source_id: int, days: int = 30, session: Session = Depends(ge
     }
 
 
-@app.get("/api/sources")
+@app.get("/api/sources", response_model=list[SourcePublic])
 def list_sources(session: Session = Depends(get_session)):
     return session.exec(select(Source).order_by(Source.name)).all()
 
@@ -372,7 +370,16 @@ class SourceCreate(BaseModel):
     bias_label: str = ""
 
 
-@app.post("/api/sources", status_code=201)
+class SourceUpdate(BaseModel):
+    """Fields the admin page may change; feed-health bookkeeping stays server-side."""
+    name: Optional[str] = None
+    feed_url: Optional[str] = None
+    home_url: Optional[str] = None
+    bias_label: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@app.post("/api/sources", status_code=201, response_model=SourcePublic)
 def create_source(data: SourceCreate, session: Session = Depends(get_session)):
     existing = session.exec(select(Source).where(Source.feed_url == data.feed_url)).first()
     if existing:
@@ -384,14 +391,16 @@ def create_source(data: SourceCreate, session: Session = Depends(get_session)):
     return source
 
 
-@app.patch("/api/sources/{source_id}")
-def update_source(source_id: int, data: dict, session: Session = Depends(get_session)):
+@app.patch("/api/sources/{source_id}", response_model=SourcePublic)
+def update_source(source_id: int, data: SourceUpdate, session: Session = Depends(get_session)):
     source = session.get(Source, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
-    for k, v in data.items():
-        if hasattr(source, k):
-            setattr(source, k, v)
+    changes = data.model_dump(exclude_unset=True)
+    if changes.get("feed_url", source.feed_url) != source.feed_url:
+        # Validators belong to the old URL
+        changes |= {"etag": "", "last_modified": ""}
+    source.sqlmodel_update(changes)
     session.add(source)
     session.commit()
     session.refresh(source)
@@ -409,48 +418,45 @@ def delete_source(source_id: int, session: Session = Depends(get_session)):
 
 # ── Scrape runs ───────────────────────────────────────────────────────────────
 
-@app.get("/api/runs")
+@app.get("/api/runs", response_model=list[ScrapeRunPublic])
 def list_runs(limit: int = 20, session: Session = Depends(get_session)):
     return session.exec(
         select(ScrapeRun).order_by(ScrapeRun.started_at.desc()).limit(limit)
     ).all()
 
 
-_scrape_running = False
+# Held for the whole fetch. Sync endpoints run on a thread pool, so a plain flag
+# could let two requests that arrive together both start a fetch.
+_scrape_lock = threading.Lock()
 
 
-@app.post("/api/scrape")
-def trigger_scrape(background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    global _scrape_running
-    if _scrape_running:
+@app.post("/api/scrape", response_model=schemas.ScrapeStarted)
+def trigger_scrape(background_tasks: BackgroundTasks):
+    if not _scrape_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="Scrape already in progress")
 
     def _run():
-        global _scrape_running
-        _scrape_running = True
-        from database import engine
         try:
             # Fetch only: clustering is done by the Claude session (scheduled task),
             # which picks up recent unclustered articles on its next run.
             with Session(engine) as s:
                 fetch_new_articles(s)
         finally:
-            _scrape_running = False
+            _scrape_lock.release()
 
     background_tasks.add_task(_run)
     return {"status": "started"}
 
 
-@app.get("/api/scrape/status")
+@app.get("/api/scrape/status", response_model=schemas.ScrapeStatus)
 def scrape_status():
-    return {"running": _scrape_running}
+    return {"running": _scrape_lock.locked()}
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
-@app.get("/api/stats")
+@app.get("/api/stats", response_model=schemas.Stats)
 def stats(session: Session = Depends(get_session)):
-    from sqlmodel import func
     total_clusters = session.exec(select(func.count(Cluster.id))).one()
     total_articles = session.exec(select(func.count(Article.id))).one()
     total_sources = session.exec(select(func.count(Source.id)).where(Source.enabled == True)).one()

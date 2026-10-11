@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { ErrorBanner } from "@/components/error-banner";
+import { SegmentedControl } from "@/components/segmented-control";
 import { BiasBar } from "@/components/news/bias-bar";
 import { StoryCard } from "@/components/news/story-card";
 import { FeedSkeleton, StoryRowSkeleton } from "@/components/news/story-skeleton";
@@ -24,6 +26,10 @@ const CONTENT_FILTERS: { value: OpinionFilter | null; label: string }[] = [
   { value: "exclude", label: "News" },
   { value: "only", label: "Opinion" },
 ];
+const VIEWS = [
+  { value: "top", label: "Top" },
+  { value: "latest", label: "Latest" },
+] as const;
 
 export default function HomePage() {
   // useSearchParams needs a Suspense boundary
@@ -59,7 +65,7 @@ function Home() {
   const [pages, setPages] = useState({ key: filterKey, count: 1 });
   const limit = (pages.key === filterKey ? pages.count : 1) * PAGE_SIZE;
 
-  const stories = useApi(`${filterKey}|${limit}`, () =>
+  const stories = useApi(`feed|${filterKey}|${limit}`, () =>
     api.getClusters({ sort: view, category, tag, min_sources: multiSourceOnly ? 2 : 1, opinion, limit })
   );
   const trending = useApi("tags", () => api.getTags());
@@ -124,36 +130,18 @@ function Home() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <div className="flex rounded-lg bg-muted p-0.5 text-sm" role="group" aria-label="Show news or opinion">
-                {CONTENT_FILTERS.map((f) => (
-                  <button
-                    key={f.label}
-                    onClick={() => setParam("opinion", f.value)}
-                    aria-pressed={(opinion ?? null) === f.value}
-                    className={cn(
-                      "rounded-md px-3 py-1 font-medium text-muted-foreground transition-colors",
-                      (opinion ?? null) === f.value && "bg-background text-foreground shadow-sm"
-                    )}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex rounded-lg bg-muted p-0.5 text-sm" role="group" aria-label="Sort stories">
-                {(["top", "latest"] as const).map((v) => (
-                  <button
-                    key={v}
-                    onClick={() => setParam("view", v === "top" ? null : v)}
-                    aria-pressed={view === v}
-                    className={cn(
-                      "rounded-md px-3 py-1 font-medium text-muted-foreground transition-colors",
-                      view === v && "bg-background text-foreground shadow-sm"
-                    )}
-                  >
-                    {v === "top" ? "Top" : "Latest"}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                label="Show news or opinion"
+                options={CONTENT_FILTERS}
+                value={opinion ?? null}
+                onChange={(v) => setParam("opinion", v)}
+              />
+              <SegmentedControl
+                label="Sort stories"
+                options={VIEWS}
+                value={view}
+                onChange={(v) => setParam("view", v === "top" ? null : v)}
+              />
               <div className="flex items-center gap-2">
                 <Switch
                   id="multi-source"
@@ -167,11 +155,7 @@ function Home() {
             </div>
           </div>
 
-          {stories.error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {stories.error}
-            </div>
-          )}
+          {stories.error && <ErrorBanner>{stories.error}</ErrorBanner>}
 
           {!stories.data && stories.loading ? (
             <FeedSkeleton />
