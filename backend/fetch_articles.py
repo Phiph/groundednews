@@ -11,6 +11,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from collections import Counter
 from datetime import datetime, timedelta
 from sqlmodel import Session, select
 from database import init_db, seed_sources, engine
@@ -44,11 +45,12 @@ def fetch_new_articles(session: Session) -> ScrapeRun:
     failures = []
 
     # Network in parallel; database writes stay on this thread
-    results = fetch_feeds([s.feed_url for s in sources], max_articles=30)
-    all_urls = [item["url"] for raw, _ in results for item in raw]
+    results = fetch_feeds([(s.feed_url, s.etag, s.last_modified) for s in sources], max_articles=30)
+    all_urls = [item["url"] for r in results for item in r.articles]
     seen = set(session.exec(select(Article.url).where(Article.url.in_(all_urls))).all())
 
-    for source, (raw, error) in zip(sources, results):
+    for source, result in zip(sources, results):
+        raw = result.articles
         run.articles_fetched += len(raw)
         new_count = 0
 
@@ -72,9 +74,16 @@ def fetch_new_articles(session: Session) -> ScrapeRun:
 
         run.articles_new += new_count
         source.last_scraped = now
-        source.article_count = len(raw)
-        # An empty feed counts as a failure too: it usually means the feed moved or broke
-        source.last_error = error or ("" if raw else "Feed returned no items")
+        if result.not_modified:
+            # Unchanged since the last fetch: healthy, and article_count still describes the feed
+            source.last_error = ""
+        else:
+            source.article_count = len(raw)
+            # An empty feed counts as a failure too: it usually means the feed moved or broke
+            source.last_error = result.error or ("" if raw else "Feed returned no items")
+        # Keep validators only from a fetch that worked, so a broken feed can't hide behind 304s
+        if not source.last_error:
+            source.etag, source.last_modified = result.etag, result.last_modified
         if source.last_error:
             source.failure_streak += 1
             failures.append(f"{source.name}: {source.last_error}")
@@ -153,14 +162,16 @@ def recent_clusters(session: Session) -> list[dict]:
     ]
 
 
+def tag_counts(session: Session, since: datetime) -> list[tuple[str, int]]:
+    """(tag, stories updated since `since` carrying it), most used first, ties alphabetical."""
+    rows = session.exec(select(Cluster.tags).where(Cluster.last_updated >= since)).all()
+    counts = Counter(t for tags in rows for t in json.loads(tags or "[]"))
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
 def active_tags(session: Session, days: int = 14) -> list[str]:
     """Tags already in use recently, so the agent reuses names instead of inventing variants."""
-    cutoff = utcnow() - timedelta(days=days)
-    counts: dict[str, int] = {}
-    for tags in session.exec(select(Cluster.tags).where(Cluster.last_updated >= cutoff)).all():
-        for t in json.loads(tags or "[]"):
-            counts[t] = counts.get(t, 0) + 1
-    return sorted(counts, key=lambda t: -counts[t])
+    return [t for t, _ in tag_counts(session, utcnow() - timedelta(days=days))]
 
 
 def fetch_and_store():

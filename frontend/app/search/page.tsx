@@ -7,11 +7,17 @@ import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ErrorBanner } from "@/components/error-banner";
+import { SegmentedControl } from "@/components/segmented-control";
 import { StoryCard } from "@/components/news/story-card";
 import { StoryRowSkeleton } from "@/components/news/story-skeleton";
 import { TagLink } from "@/components/news/tag-link";
 
 const PAGE_SIZE = 30;
+const SORTS = [
+  { value: "relevance", label: "Best match" },
+  { value: "latest", label: "Newest" },
+] as const;
 
 export default function SearchPage() {
   // useSearchParams needs a Suspense boundary
@@ -98,28 +104,10 @@ function SearchView() {
                 "Searching…"
               )}
             </p>
-            <div className="flex rounded-lg bg-muted p-0.5 text-sm" role="group" aria-label="Sort results">
-              {(["relevance", "latest"] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setSort(v)}
-                  aria-pressed={sort === v}
-                  className={cn(
-                    "rounded-md px-3 py-1 font-medium text-muted-foreground transition-colors",
-                    sort === v && "bg-background text-foreground shadow-sm"
-                  )}
-                >
-                  {v === "relevance" ? "Best match" : "Newest"}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl label="Sort results" options={SORTS} value={sort} onChange={setSort} />
           </div>
 
-          {results.error && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {results.error}
-            </div>
-          )}
+          {results.error && <ErrorBanner>{results.error}</ErrorBanner>}
 
           {!data && results.loading ? (
             <div className="divide-y">{Array.from({ length: 4 }, (_, i) => <StoryRowSkeleton key={i} />)}</div>

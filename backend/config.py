@@ -5,12 +5,8 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).parent.parent
 load_dotenv(PROJECT_ROOT / ".groundednews_env")
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./backend/groundednews.db")
 # Resolve relative SQLite paths against the project root so the DB is found
 # regardless of the working directory (start.sh runs uvicorn from backend/).
 if DATABASE_URL.startswith("sqlite:///./"):
     DATABASE_URL = f"sqlite:///{PROJECT_ROOT / DATABASE_URL[len('sqlite:///./'):]}"
-SCRAPE_INTERVAL_MINUTES = int(os.getenv("SCRAPE_INTERVAL_MINUTES", "60"))
-SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
-MAX_ARTICLES_PER_SCRAPE = int(os.getenv("MAX_ARTICLES_PER_SCRAPE", "50"))

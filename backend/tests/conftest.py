@@ -123,7 +123,7 @@ def make(db) -> Factory:
 
 
 def pytest_configure(config):
-    # feedparser 6.0.11 trips a Python 3.13 deprecation inside its own HTML sanitizer
+    # feedparser trips a Python 3.13 deprecation inside its own HTML sanitizer
     config.addinivalue_line("filterwarnings", "ignore::DeprecationWarning:feedparser.*")
-    # starlette 0.38's TestClient uses an anyio alias that newer anyio deprecates
-    config.addinivalue_line("filterwarnings", "ignore:The anyio.abc.BlockingPortal alias:DeprecationWarning")
+    # Starlette 1.x asks for httpx2 in its TestClient; plain httpx still works for tests
+    config.addinivalue_line("filterwarnings", "ignore:Using `httpx` with `starlette.testclient`")

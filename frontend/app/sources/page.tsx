@@ -7,6 +7,7 @@ import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorBanner } from "@/components/error-banner";
 
 export default function SourcesPage() {
   const summary = useApi("sources-summary", () => api.getSourcesSummary(7));
@@ -21,11 +22,7 @@ export default function SourcesPage() {
           The outlets GroundedNews follows, by political leaning. Activity is for the last 7 days.
         </p>
       </div>
-      {summary.error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {summary.error}
-        </div>
-      )}
+      {summary.error && <ErrorBanner>{summary.error}</ErrorBanner>}
       <div className="grid gap-8 md:grid-cols-3">
         {SIDES.map((side) => {
           const items = sources.filter((s) => sideOf(s.bias_label) === side);

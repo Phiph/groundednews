@@ -130,24 +130,46 @@ def rss_feed(*items):
     return f'<?xml version="1.0"?><rss version="2.0"><channel><title>Test</title>{"".join(items)}</channel></rss>'
 
 
-def respond(status=200, content=b"", exc=None):
-    """A stand-in for httpx.get: returns a canned response, or raises `exc`."""
-    def fake_get(url, **kwargs):
+def respond(status=200, content=b"", exc=None, headers=None):
+    """A canned reply for one URL: a response, or raises `exc`."""
+    def reply(request: httpx.Request) -> httpx.Response:
         if exc:
             raise exc
-        return httpx.Response(status, content=content, request=httpx.Request("GET", url))
-    return fake_get
+        return httpx.Response(status, content=content, headers=headers)
+    return reply
+
+
+@pytest.fixture
+def serve(monkeypatch):
+    """Route the scraper's HTTP client to canned replies: serve(reply) for every URL, or
+    serve({url: reply}). Returns the list of requests made, to inspect what was sent."""
+    requests: list[httpx.Request] = []
+
+    def install(replies):
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            reply = replies[str(request.url)] if isinstance(replies, dict) else replies
+            return reply(request)
+        monkeypatch.setattr(scraper, "_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+        return requests
+    return install
+
+
+def fetch_one(url="https://outlet.example/feed", etag="", last_modified=""):
+    """fetch_feed through the scraper's own client, as fetch_feeds calls it."""
+    with scraper._client() as client:
+        return fetch_feed(url, client, 50, etag, last_modified)
 
 
 class TestFetchFeed:
-    def test_parses_items(self, monkeypatch):
+    def test_parses_items(self, serve):
         feed = rss_feed(
             item("Senate passes budget", link="https://news.example/budget"),
             item("Why the budget fails", category="Opinion"),
             item("BBC News app", link="https://bbc.co.uk/news/app"),  # junk: skipped
         )
-        monkeypatch.setattr(scraper.httpx, "get", respond(content=feed.encode()))
-        articles = fetch_feed("https://outlet.example/feed")
+        serve(respond(content=feed.encode()))
+        articles = fetch_one().articles
         assert [a["title"] for a in articles] == ["Senate passes budget", "Why the budget fails"]
         first = articles[0]
         assert first["url"] == "https://news.example/budget"
@@ -155,37 +177,68 @@ class TestFetchFeed:
         assert first["published_at"] == datetime(2026, 10, 5, 10, 30)
         assert [a["is_opinion"] for a in articles] == [False, True]
 
-    def test_timeout(self, monkeypatch):
-        monkeypatch.setattr(scraper.httpx, "get", respond(exc=httpx.ReadTimeout("slow")))
+    def test_timeout(self, serve):
+        serve(respond(exc=httpx.ReadTimeout("slow")))
         with pytest.raises(RuntimeError, match=r"^Timed out after 15s$"):
-            fetch_feed("https://outlet.example/feed")
+            fetch_one()
 
-    def test_http_error_status(self, monkeypatch):
-        monkeypatch.setattr(scraper.httpx, "get", respond(status=404))
+    def test_http_error_status(self, serve):
+        serve(respond(status=404))
         with pytest.raises(RuntimeError, match=r"^HTTP 404$"):
-            fetch_feed("https://outlet.example/feed")
+            fetch_one()
 
-    def test_connection_failure(self, monkeypatch):
-        monkeypatch.setattr(scraper.httpx, "get", respond(exc=httpx.ConnectError("name not resolved")))
+    def test_connection_failure(self, serve):
+        serve(respond(exc=httpx.ConnectError("name not resolved")))
         with pytest.raises(RuntimeError, match=r"^Connection failed: name not resolved$"):
-            fetch_feed("https://outlet.example/feed")
+            fetch_one()
 
-    def test_not_a_feed(self, monkeypatch):
-        monkeypatch.setattr(scraper.httpx, "get", respond(content=b"<html><body>Moved</p></div>"))
+    def test_not_a_feed(self, serve):
+        serve(respond(content=b"<html><body>Moved</p></div>"))
         with pytest.raises(RuntimeError, match=r"^Not a valid feed: "):
-            fetch_feed("https://outlet.example/feed")
+            fetch_one()
 
 
-def test_fetch_feeds_reports_errors_per_feed_in_order(monkeypatch):
-    feeds = {
+class TestConditionalFetch:
+    VALIDATORS = {"ETag": '"v1"', "Last-Modified": "Sun, 11 Oct 2026 01:00:00 GMT"}
+
+    def test_first_fetch_sends_no_validators_and_returns_the_servers(self, serve):
+        requests = serve(respond(content=rss_feed(item("Story")).encode(), headers=self.VALIDATORS))
+        result = fetch_one()
+        assert "If-None-Match" not in requests[0].headers
+        assert "If-Modified-Since" not in requests[0].headers
+        assert (result.etag, result.last_modified) == ('"v1"', "Sun, 11 Oct 2026 01:00:00 GMT")
+        assert not result.not_modified
+
+    def test_validators_are_sent_back(self, serve):
+        requests = serve(respond(status=304))
+        fetch_one(etag='"v1"', last_modified="Sun, 11 Oct 2026 01:00:00 GMT")
+        assert requests[0].headers["If-None-Match"] == '"v1"'
+        assert requests[0].headers["If-Modified-Since"] == "Sun, 11 Oct 2026 01:00:00 GMT"
+
+    def test_304_is_not_modified_rather_than_an_error(self, serve):
+        serve(respond(status=304))
+        result = fetch_one(etag='"v1"')
+        assert result.not_modified and result.articles == [] and result.error == ""
+        assert result.etag == '"v1"'  # kept when the 304 doesn't send a new one
+
+    def test_304_can_refresh_the_validators(self, serve):
+        serve(respond(status=304, headers={"ETag": '"v2"'}))
+        assert fetch_one(etag='"v1"').etag == '"v2"'
+
+
+def test_fetch_feeds_reports_errors_per_feed_in_order(serve):
+    serve({
         "https://ok.example/feed": respond(content=rss_feed(item("Story")).encode()),
         "https://slow.example/feed": respond(exc=httpx.ConnectTimeout("slow")),
         "https://gone.example/feed": respond(status=404),
         "https://html.example/feed": respond(content=b"<html><body>nope</p>"),
-    }
-    monkeypatch.setattr(scraper.httpx, "get", lambda url, **kw: feeds[url](url, **kw))
-    results = fetch_feeds(list(feeds))
-    assert [len(articles) for articles, _ in results] == [1, 0, 0, 0]
-    errors = [error for _, error in results]
+        "https://same.example/feed": respond(status=304),
+    })
+    urls = ["https://ok.example/feed", "https://slow.example/feed", "https://gone.example/feed",
+            "https://html.example/feed", "https://same.example/feed"]
+    results = fetch_feeds([(url, '"v1"', "") for url in urls])
+    assert [len(r.articles) for r in results] == [1, 0, 0, 0, 0]
+    errors = [r.error for r in results]
     assert errors[:3] == ["", "Timed out after 15s", "HTTP 404"]
     assert errors[3].startswith("Not a valid feed: ")
+    assert errors[4] == "" and results[4].not_modified

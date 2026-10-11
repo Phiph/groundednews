@@ -1,31 +1,17 @@
 "use client";
-import { useEffect, useState } from "react";
+import useSWR from "swr";
 
 /**
- * Fetch data whenever `key` changes. Previous data stays available while the next
- * request is in flight, so lists don't flash empty when filters change.
+ * Fetch data whenever `key` changes, via SWR: responses are cached and shared by key
+ * (e.g. trending tags on the feed and search pages), and refreshed when the tab regains
+ * focus. Previous data stays available while the next request is in flight, so lists
+ * don't flash empty when filters change.
  */
 export function useApi<T>(key: string, fetcher: () => Promise<T>) {
-  const [state, setState] = useState<{ key?: string; data?: T; error?: string }>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    fetcher().then(
-      (data) => !cancelled && setState({ key, data }),
-      (e: unknown) =>
-        !cancelled &&
-        setState((prev) => ({
-          ...prev,
-          key,
-          error: e instanceof Error ? e.message : "Failed to load. Is the backend running?",
-        }))
-    );
-    return () => {
-      cancelled = true;
-    };
-    // `key` encodes everything the fetcher depends on
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  return { data: state.data, error: state.key === key ? state.error : undefined, loading: state.key !== key };
+  const { data, error, isLoading } = useSWR<T, unknown>(key, fetcher, { keepPreviousData: true });
+  return {
+    data,
+    error: error ? (error instanceof Error ? error.message : "Failed to load. Is the backend running?") : undefined,
+    loading: isLoading,
+  };
 }

@@ -1,148 +1,34 @@
+import type { components } from "./api-schema";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export interface ClusterSource {
-  source_id: number;
-  source_name: string;
-  bias_label: string;
-  title: string;
-  url: string;
-  published_at: string | null;
-  summary?: string;
-  image_url?: string;
-  is_opinion: boolean;
-}
+// Response types are generated from the backend's response models (backend/schemas.py,
+// backend/models.py). After changing those, run `npm run gen:api` to refresh lib/api-schema.ts.
+type Schemas = components["schemas"];
+
+export type ClusterSource = Schemas["ClusterSource"];
+/** An article on the story page, which also carries its summary */
+export type ClusterSourceDetail = Schemas["ClusterSourceDetail"];
+export type BiasBreakdown = Schemas["Bias"];
+export type Cluster = Schemas["Cluster"];
+export type ClusterDetail = Schemas["ClusterDetail"];
+export type Source = Schemas["SourcePublic"];
+export type SourceCreate = Schemas["SourceCreate"];
+export type SourceUpdate = Schemas["SourceUpdate"];
+export type ScrapeRun = Schemas["ScrapeRunPublic"];
+export type TagCount = Schemas["TagCount"];
+export type SourceSummary = Schemas["SourceSummary"];
+export type SourceProfile = Schemas["SourceProfile"];
+export type Briefing = Schemas["Briefing"];
+export type QualityDay = Schemas["QualityDay"];
+export type SearchResults = Schemas["SearchResults"];
+export type Stats = Schemas["Stats"];
 
 export type Side = "left" | "center" | "right";
-
-export interface BiasBreakdown {
-  left: number;
-  center: number;
-  right: number;
-  unknown: number;
-  /** Side that is largely ignoring the story, if any */
-  blindspot: "left" | "right" | null;
-}
+export type OpinionFilter = "exclude" | "only";
 
 /** How each side's outlets framed a story; only sides that covered it, and {} until written. */
 export type Framing = Partial<Record<Side, string>>;
-
-export interface Cluster {
-  id: number;
-  headline: string;
-  summary: string;
-  category: string;
-  tags: string[];
-  framing: Framing;
-  image_url?: string;
-  bias: BiasBreakdown;
-  /** Only opinion pieces so far, no straight reporting */
-  is_opinion: boolean;
-  article_count: number;
-  source_count: number;
-  first_seen: string;
-  last_updated: string;
-  sources: ClusterSource[];
-}
-
-export interface Source {
-  id: number;
-  name: string;
-  feed_url: string;
-  home_url: string;
-  bias_label: string;
-  enabled: boolean;
-  last_scraped: string | null;
-  /** Items in the feed on the last fetch */
-  article_count: number;
-  /** Why the last fetch failed; "" if it worked */
-  last_error: string;
-  /** Consecutive fetches that failed or returned nothing */
-  failure_streak: number;
-  last_success: string | null;
-  /** When the feed last yielded an unseen article */
-  last_new_article: string | null;
-}
-
-export interface ScrapeRun {
-  id: number;
-  started_at: string;
-  finished_at: string | null;
-  articles_fetched: number;
-  articles_new: number;
-  clusters_created: number;
-  clusters_updated: number;
-  status: string;
-  error: string;
-}
-
-export interface TagCount {
-  tag: string;
-  count: number;
-}
-
-export type OpinionFilter = "exclude" | "only";
-
-export interface SourceSummary {
-  id: number;
-  name: string;
-  home_url: string;
-  bias_label: string;
-  enabled: boolean;
-  /** Counts over the summary window */
-  articles: number;
-  opinion: number;
-  stories: number;
-  latest_article: string | null;
-}
-
-export interface SourceProfile {
-  source: Source;
-  days: number;
-  articles: number;
-  opinion: number;
-  stories: number;
-  /** Stories at least one other outlet also covered */
-  shared_stories: number;
-  exclusive_stories: number;
-  /** Shared stories where this outlet published first */
-  first_reports: number;
-  categories: { category: string; count: number }[];
-  /** Widely covered recent stories this outlet didn't cover */
-  missed: Cluster[];
-}
-
-export interface Briefing {
-  /** The 24h window, ending at the newest story */
-  window_start: string | null;
-  window_end: string | null;
-  /** Top 10 news stories (no opinion-only) with 2+ outlets, best first */
-  stories: Cluster[];
-  /** Up to 3 per side, from the wider 72h window */
-  blindspots: { left: Cluster[]; right: Cluster[] };
-  tags: TagCount[];
-  totals: { stories: number; articles: number; outlets: number };
-}
-
-/** One day of clustering quality, by when stories first appeared (UTC) */
-export interface QualityDay {
-  date: string;
-  stories: number;
-  multi_source: number;
-  /** multi_source / stories, 0–1 */
-  share: number;
-}
-
-export interface SearchResults {
-  total: number;
-  results: Cluster[];
-}
-
-export interface Stats {
-  total_clusters: number;
-  total_articles: number;
-  active_sources: number;
-  last_run: ScrapeRun | null;
-}
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -184,14 +70,14 @@ export const api = {
     if (params?.limit) qs.set("limit", String(params.limit));
     return apiFetch<SearchResults>(`/api/search?${qs}`);
   },
-  getCluster: (id: number) => apiFetch<Cluster>(`/api/clusters/${id}`),
+  getCluster: (id: number) => apiFetch<ClusterDetail>(`/api/clusters/${id}`),
   getSources: () => apiFetch<Source[]>("/api/sources"),
   getSourcesSummary: (days = 7) =>
     apiFetch<{ days: number; sources: SourceSummary[] }>(`/api/sources/summary?days=${days}`),
   getSourceProfile: (id: number, days = 30) => apiFetch<SourceProfile>(`/api/sources/${id}?days=${days}`),
-  createSource: (data: Partial<Source>) =>
+  createSource: (data: SourceCreate) =>
     apiFetch<Source>("/api/sources", { method: "POST", body: JSON.stringify(data) }),
-  updateSource: (id: number, data: Partial<Source>) =>
+  updateSource: (id: number, data: SourceUpdate) =>
     apiFetch<Source>(`/api/sources/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteSource: (id: number) =>
     apiFetch<void>(`/api/sources/${id}`, { method: "DELETE" }),

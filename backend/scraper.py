@@ -3,6 +3,7 @@ import re
 import feedparser
 import httpx
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 from timeutil import utcnow
@@ -96,41 +97,74 @@ def extract_image(entry) -> str:
     return m.group(1) if m else ""
 
 
-def fetch_og_image(url: str) -> str:
+def fetch_og_image(url: str, client: httpx.Client) -> str:
     """Fallback: read the og:image meta tag from the article page."""
     try:
-        r = httpx.get(url, timeout=8, follow_redirects=True,
-                      headers={"User-Agent": "Mozilla/5.0 (GroundedNews)"})
+        r = client.get(url, timeout=8)
         m = re.search(
             r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)', r.text
         ) or re.search(
             r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\']', r.text
         )
-        return m.group(1).replace("&amp;", "&") if m else ""
+        return html.unescape(m.group(1)) if m else ""
     except Exception:
         return ""
-
-
-def fetch_og_images(urls: list[str]) -> list[str]:
-    with ThreadPoolExecutor(max_workers=12) as pool:
-        return list(pool.map(fetch_og_image, urls))
 
 
 FEED_TIMEOUT = 15  # seconds; one slow feed must not stall the whole run
 USER_AGENT = "Mozilla/5.0 (compatible; GroundedNews/1.0)"
 
 
-def fetch_feed(feed_url: str, max_articles: int = 50) -> list[dict]:
-    """Download and parse one feed. Raises with a readable message on failure."""
+def _client() -> httpx.Client:
+    """One connection pool per batch: most pages come from a handful of outlet hosts,
+    so keep-alive saves a TLS handshake per request. httpx.Client is thread-safe."""
+    return httpx.Client(
+        follow_redirects=True,
+        headers={"User-Agent": USER_AGENT},
+        limits=httpx.Limits(max_connections=16, max_keepalive_connections=16),
+    )
+
+
+def fetch_og_images(urls: list[str]) -> list[str]:
+    with _client() as client, ThreadPoolExecutor(max_workers=12) as pool:
+        return list(pool.map(lambda url: fetch_og_image(url, client), urls))
+
+
+@dataclass
+class FeedResult:
+    articles: list[dict] = field(default_factory=list)
+    error: str = ""             # "" on success
+    not_modified: bool = False  # 304: nothing changed since the validators below were issued
+    # Validators to send next time (If-None-Match / If-Modified-Since); "" if the server gave none
+    etag: str = ""
+    last_modified: str = ""
+
+
+def fetch_feed(feed_url: str, client: httpx.Client, max_articles: int = 50,
+               etag: str = "", last_modified: str = "") -> FeedResult:
+    """Download and parse one feed, conditionally if we hold validators from the last fetch.
+    Raises with a readable message on failure."""
+    headers = {}
+    if etag:
+        headers["If-None-Match"] = etag
+    if last_modified:
+        headers["If-Modified-Since"] = last_modified
     try:
-        r = httpx.get(feed_url, timeout=FEED_TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT})
-        r.raise_for_status()
+        r = client.get(feed_url, timeout=FEED_TIMEOUT, headers=headers)
+        if r.status_code != 304:  # raise_for_status() counts 304 as an error
+            r.raise_for_status()
     except httpx.TimeoutException:
         raise RuntimeError(f"Timed out after {FEED_TIMEOUT}s")
     except httpx.HTTPStatusError as e:
         raise RuntimeError(f"HTTP {e.response.status_code}")
     except httpx.HTTPError as e:
         raise RuntimeError(f"Connection failed: {e}")
+
+    # A 304 may refresh the validators; otherwise the ones we sent still hold
+    new_etag = r.headers.get("ETag", "")
+    new_modified = r.headers.get("Last-Modified", "")
+    if r.status_code == 304:
+        return FeedResult(not_modified=True, etag=new_etag or etag, last_modified=new_modified or last_modified)
 
     feed = feedparser.parse(r.content)
     if not feed.entries and feed.bozo:
@@ -151,24 +185,19 @@ def fetch_feed(feed_url: str, max_articles: int = 50) -> list[dict]:
             "image_url": extract_image(entry),
             "is_opinion": is_opinion(title, url, [t.get("term", "") for t in entry.get("tags") or []]),
         })
-    return articles
+    return FeedResult(articles=articles, etag=new_etag, last_modified=new_modified)
 
 
-def fetch_feeds(feed_urls: list[str], max_articles: int = 50) -> list[tuple[list[dict], str]]:
-    """Fetch feeds in parallel. Returns (articles, error) per feed, in order; error is "" on success."""
-    def one(url: str) -> tuple[list[dict], str]:
-        try:
-            return fetch_feed(url, max_articles), ""
-        except Exception as e:
-            return [], str(e)[:300]
+def fetch_feeds(feeds: list[tuple[str, str, str]], max_articles: int = 50) -> list[FeedResult]:
+    """Fetch feeds in parallel. `feeds` holds (url, etag, last_modified) per feed, with ""
+    for validators we don't have. Returns one FeedResult per feed, in order."""
+    with _client() as client:
+        def one(feed: tuple[str, str, str]) -> FeedResult:
+            url, etag, last_modified = feed
+            try:
+                return fetch_feed(url, client, max_articles, etag, last_modified)
+            except Exception as e:
+                return FeedResult(error=str(e)[:300])
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        return list(pool.map(one, feed_urls))
-
-
-def scrape_feed(feed_url: str, max_articles: int = 50) -> list[dict]:
-    """Single-feed fetch that logs and swallows errors (used by the legacy API pipeline)."""
-    articles, error = fetch_feeds([feed_url], max_articles)[0]
-    if error:
-        print(f"Error scraping {feed_url}: {error}")
-    return articles
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return list(pool.map(one, feeds))

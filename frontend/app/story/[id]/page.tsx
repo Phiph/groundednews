@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { ArrowLeft, ExternalLink } from "lucide-react";
-import { api, type ClusterSource, type Side } from "@/lib/api";
+import { api, type ClusterSourceDetail, type Side } from "@/lib/api";
 import { useApi } from "@/lib/use-api";
 import { recordArticleClick, recordStoryView } from "@/lib/reading-history";
 import { cn } from "@/lib/utils";
@@ -162,7 +162,7 @@ function HeroImage({ src }: { src?: string }) {
   );
 }
 
-function SideColumn({ side, items }: { side: Side | null; items: ClusterSource[] }) {
+function SideColumn({ side, items }: { side: Side | null; items: ClusterSourceDetail[] }) {
   return (
     <div className="space-y-3">
       <div className={cn("flex items-center justify-between border-b-2 pb-1.5", side ? SIDE_BORDER[side] : "border-border")}>
@@ -182,7 +182,7 @@ function SideColumn({ side, items }: { side: Side | null; items: ClusterSource[]
   );
 }
 
-function ArticleItem({ a }: { a: ClusterSource }) {
+function ArticleItem({ a }: { a: ClusterSourceDetail }) {
   const { id } = useParams<{ id: string }>();
   // Left or middle click; auxclick also fires for right-click, which isn't a read
   const record = (e: { button: number }) => e.button <= 1 && recordArticleClick(a, Number(id));
