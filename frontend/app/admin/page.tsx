@@ -15,7 +15,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { QualityChart } from "@/components/admin/quality-chart";
 
+const QUALITY_DAYS = 30;
 const BIAS_OPTIONS = ["left", "center-left", "center", "center-right", "right"];
 const EMPTY_FORM = { name: "", feed_url: "", home_url: "", bias_label: "center" };
 const HEALTH_STYLES: Record<HealthLevel, string> = {
@@ -32,6 +34,7 @@ export default function AdminPage() {
   const stats = useApi(`stats-${version}`, () => api.getStats());
   const sources = useApi(`sources-${version}`, () => api.getSources());
   const runs = useApi(`runs-${version}`, () => api.getRuns());
+  const quality = useApi(`quality-${version}`, () => api.getQuality(QUALITY_DAYS));
 
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -127,6 +130,26 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* Clustering quality */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Clustering quality</CardTitle>
+          <CardDescription>
+            Share of each day&apos;s stories (UTC) that ended up covered by two or more outlets. Feed and
+            clustering changes should push it up.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {quality.data ? (
+            <QualityChart data={quality.data} days={QUALITY_DAYS} />
+          ) : quality.error ? (
+            <p className="text-sm text-destructive">{quality.error}</p>
+          ) : (
+            <div className="h-72 animate-pulse rounded-lg bg-muted/40" />
+          )}
+        </CardContent>
+      </Card>
 
       {/* Sources */}
       <Card>

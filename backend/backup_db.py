@@ -8,6 +8,7 @@ Also called at the start of fetch_articles.py, so the scheduled task keeps backu
 """
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -34,7 +35,8 @@ def backup(force: bool = False) -> Path | None:
 
     # Write to a temp name first so a half-written file never looks like a valid backup
     partial = target.with_suffix(".db.partial")
-    with sqlite3.connect(source) as src, sqlite3.connect(partial) as dst:
+    # closing(): a bare `with sqlite3.connect()` only commits, it doesn't close the file
+    with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(partial)) as dst:
         src.backup(dst)
     partial.replace(target)
 
