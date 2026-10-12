@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/Phiph/groundednews/compare/v0.2.0...v0.2.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **docker:** writable backups, CLI in image, and cached builds ([#20](https://github.com/Phiph/groundednews/issues/20)) ([9ab4e07](https://github.com/Phiph/groundednews/commit/9ab4e075c8756a18085e6f4fceae343491f2c3ab))
+
 ## [0.2.0](https://github.com/Phiph/groundednews/compare/v0.1.0...v0.2.0) (2026-10-12)
 
 
