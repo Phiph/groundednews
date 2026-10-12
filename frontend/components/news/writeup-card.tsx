@@ -20,16 +20,20 @@ const ELEMENTS: Components = {
   h1: heading,
   h2: heading,
   h3: heading,
-  a: ({ href, children }) => (
-    <a href={href} className="underline underline-offset-2" target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) =>
+    href ? (
+      <a href={href} className="underline underline-offset-2" target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    ) : (
+      <span>{children}</span>
+    ),
 };
 
 /**
  * A story write-up, day's briefing or thread summary, written by Claude. Renders nothing
- * without one. Raw HTML in the Markdown is dropped; unsafe link URLs are stripped by react-markdown.
+ * without one. Raw HTML and images are dropped (the text comes from untrusted RSS, and an image would make the
+ * reader's browser fetch a third-party URL); links with unsafe URLs, which react-markdown strips, show as plain text.
  */
 export function WriteupCard({ writeup }: { writeup?: Writeup | null }) {
   if (!writeup) return null;
@@ -39,7 +43,7 @@ export function WriteupCard({ writeup }: { writeup?: Writeup | null }) {
       <CardContent className="space-y-3">
         <h2 className="font-heading font-semibold">{writeup.title || HEADINGS[writeup.kind]}</h2>
         <div className="space-y-3 text-sm">
-          <Markdown skipHtml components={ELEMENTS}>
+          <Markdown skipHtml disallowedElements={["img"]} components={ELEMENTS}>
             {writeup.body}
           </Markdown>
         </div>

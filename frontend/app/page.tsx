@@ -158,7 +158,7 @@ function Home() {
           </div>
 
           {stories.error && <ErrorBanner>{stories.error}</ErrorBanner>}
-          {tag && <WriteupCard writeup={thread.data} />}
+          {tag && thread.data?.subject === tag && <WriteupCard writeup={thread.data} />}
 
           {!stories.data && stories.loading ? (
             <FeedSkeleton />
