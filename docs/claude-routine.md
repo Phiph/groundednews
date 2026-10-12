@@ -32,6 +32,46 @@ If scheduling is unavailable, run the same prompt manually in a tool-enabled ses
 - Validate that every fetched article ID appears exactly once before saving. The saver can skip unknown IDs and move existing articles between stories; successful execution is not a substitute for checking the output.
 - If a command fails or JSON is invalid, stop and report the error. Do not claim success or retry a partly completed save blindly.
 
+## Using the MCP server
+
+The repository includes a stdio MCP server, `backend/mcp_server.py`, registered as `groundednews` in the committed `.mcp.json`. It works on the database directly (the API need not be running) and is the preferred way to run the routine: its tools validate each save as a whole batch before writing, and it is the only way to write the story, briefing and thread write-ups the site shows.
+
+### Setup
+
+1. Install the backend requirements (they include `mcp`) and confirm `venv/bin/python backend/mcp_server.py` starts without errors (stop it with Ctrl+C).
+2. Run the routine with the repository checkout as its working folder so `.mcp.json` is found and its relative paths resolve.
+3. Pre-approve the server so a scheduled run never stops at an approval prompt. In the checkout's `.claude/settings.local.json` (gitignored), add:
+
+   ```json
+   {
+     "enabledMcpjsonServers": ["groundednews"],
+     "permissions": {"allow": ["mcp__groundednews"]}
+   }
+   ```
+
+   Merge these keys into any existing settings rather than replacing the file.
+
+### Routine with the MCP tools
+
+Follow the [reusable analyst routine](#reusable-analyst-routine) for the clustering, opinion, tag and framing rules, but use the tools in place of the scripts:
+
+| Step | Script | MCP tool |
+| --- | --- | --- |
+| 1. Fetch | `fetch_articles.py` | `fetch_articles()`, then page through `get_pending_articles(offset, limit)`. The fetch result reports `articles_pending` and does not include the articles. |
+| 3. Save clusters | `save_clusters.py clusters.json RUN_ID` | `save_clusters(clusters, run_id)`. Nothing is saved if any entry fails validation; check `still_pending` is 0 afterwards. |
+| 4. Framing | `framing_candidates.py`, then `save_clusters.py framing_notes.json` | `get_framing_candidates()`, then `save_framing(notes)` |
+
+Then add a write-up step before reporting:
+
+1. Call `get_writeup_candidates()`. It returns the day's briefing (rewritten each run), up to 3 busy threads and up to 5 widely covered cross-spectrum stories that have no write-up or a stale one.
+2. Read each subject with `get_day()`, `get_thread(tag)` or `get_story(cluster_id)`.
+3. Write Markdown grounded only in the returned headlines and summaries, under the same neutrality rules as framing notes: a briefing of about 200–350 words, threads of about 150–250 words and stories of about 150–300 words.
+4. Save each with `save_writeup(kind, subject, title, body, author="routine")`. The routine must pass `author="routine"`; the default, `"session"`, marks a write-up as yours, and the routine is refused when it tries to overwrite one of those.
+
+If the tools are unavailable in a run, fall back to the scripts for Steps 1–4 and skip write-ups.
+
+Interactive sessions in the checkout can use the same server to read stories (`list_stories`, `get_story`, `search_stories`, `get_thread`, `get_day`) and to write or rewrite write-ups with the default `author="session"`.
+
 ## Reusable analyst routine
 
 Copy the following instructions into your local tool-enabled task. Substitute `/absolute/path/to/groundednews` and `/absolute/path/to/scratch` **before** running it; the scratch directory must exist and be writable. These commands intentionally use the virtual environment's Python and JSON files rather than inline shell JSON.
