@@ -16,9 +16,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from fastapi import HTTPException
 from pydantic import BaseModel, Field, model_validator
 from sqlmodel import Session, select
 
+import main
 import writeups
 from backup_db import backup
 from database import engine, init_db
@@ -180,6 +182,113 @@ def get_writeup_candidates() -> dict:
     included. Read each subject with get_day / get_thread / get_story before writing."""
     with session() as s:
         return {**writeup_candidates(s), "limits": {"briefing": 1, "threads": MAX_THREADS, "stories": MAX_STORIES}}
+
+
+# ── Reading ─────────────────────────────────────────────────────────────────
+# These call the API's own endpoint functions so the MCP and the site see the same stories,
+# then trim each story so results stay small: no URLs or images, outlets by name.
+
+_ARTICLE_FIELDS = ("source_name", "bias_label", "title", "summary", "is_opinion", "published_at")
+
+
+def _brief(story: dict) -> dict:
+    keep = ("id", "headline", "summary", "category", "tags", "article_count", "source_count",
+            "last_updated", "bias", "is_opinion")
+    return {**{k: story[k] for k in keep},
+            "outlets": sorted({src["source_name"] for src in story["sources"]})}
+
+
+def _full(story: dict) -> dict:
+    return {**{k: v for k, v in story.items() if k not in ("sources", "image_url")},
+            "sources": [{k: src[k] for k in _ARTICLE_FIELDS if k in src} for src in story["sources"]]}
+
+
+def _stories(s: Session, **filters) -> list[dict]:
+    params = dict(category=None, tag=None, blindspot=None, sort="top", min_sources=1, opinion=None,
+                  source_id=None, limit=20, offset=0)
+    return main.list_clusters(**{**params, **filters}, session=s)
+
+
+@tool
+def list_stories(sort: Literal["top", "latest"] = "top", category: Optional[Category] = None,
+                 tag: Optional[str] = None, opinion: Optional[Literal["exclude", "only"]] = None,
+                 limit: Annotated[int, Field(ge=1, le=50)] = 20) -> dict:
+    """Stories as the site lists them: "top" ranks the last 72h by coverage across the spectrum."""
+    with session() as s:
+        return {"stories": [_brief(r) for r in _stories(s, sort=sort, category=category, tag=tag,
+                                                         opinion=opinion, limit=limit)]}
+
+
+@tool
+def get_story(cluster_id: int) -> dict:
+    """One story: every article (outlet, side, title, summary), its framing notes and its write-up."""
+    with session() as s:
+        try:
+            return _full(main.get_cluster(cluster_id, session=s))
+        except HTTPException:
+            raise ValueError(f"story {cluster_id} not found") from None
+
+
+@tool
+def search_stories(q: str, limit: Annotated[int, Field(ge=1, le=50)] = 20) -> dict:
+    """Full-text search over headlines, summaries, tags and outlet titles; best match first."""
+    with session() as s:
+        found = main.search(q=q, sort="relevance", limit=limit, offset=0, session=s)
+    return {"total": found["total"], "results": [_brief(r) for r in found["results"]]}
+
+
+@tool
+def get_thread(tag: str, limit: Annotated[int, Field(ge=1, le=100)] = 30) -> dict:
+    """An ongoing thread: the tag's latest stories, oldest first, and its write-up."""
+    with session() as s:
+        stories = _stories(s, tag=tag, sort="latest", limit=limit)
+        if not stories:
+            raise ValueError(f"no story is tagged {tag!r}")
+        return {"tag": tag, "stories": [_brief(r) for r in reversed(stories)],
+                "writeup": writeups.writeup_for(s, "thread", tag)}
+
+
+@tool
+def get_day() -> dict:
+    """The current briefing: the 24 hours to the newest story — top stories, each side's
+    blindspots, busiest tags — and its write-up. `subject` is the date to save it under."""
+    with session() as s:
+        day = main.briefing(session=s)
+        return {
+            "subject": writeups.briefing_date(s),
+            **{k: day[k] for k in ("window_start", "window_end", "totals", "tags", "writeup")},
+            "stories": [_full(r) for r in day["stories"]],
+            "blindspots": {side: [_brief(r) for r in rows] for side, rows in day["blindspots"].items()},
+        }
+
+
+# ── Write-ups ───────────────────────────────────────────────────────────────
+
+@tool
+def save_writeup(kind: writeups.Kind, subject: str, title: str, body: str,
+                 author: writeups.Author = "session") -> dict:
+    """Create or replace a write-up (Markdown body). subject: the cluster id for a story, the
+    tag for a thread, the date from get_day for a briefing. The routine must pass
+    author="routine"; it can't replace a write-up from an interactive session."""
+    with session() as s:
+        return writeups.public(s, writeups.save(s, kind, subject, title, body, author))
+
+
+@tool
+def get_writeup(kind: writeups.Kind, subject: str) -> dict:
+    """A write-up with its staleness (new_articles since it was written)."""
+    with session() as s:
+        found = writeups.writeup_for(s, kind, subject)
+    if not found:
+        raise ValueError(f"no {kind} write-up for {subject!r}")
+    return found
+
+
+@tool
+def delete_writeup(kind: writeups.Kind, subject: str) -> dict:
+    """Remove a write-up; the site then shows nothing in its place."""
+    with session() as s:
+        return {"deleted": writeups.delete(s, kind, subject)}
 
 
 if __name__ == "__main__":

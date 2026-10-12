@@ -142,3 +142,68 @@ def test_stray_prints_never_reach_the_stdio_wire(make, caplog):
         result = anyio.run(go)
     assert not result.is_error, result.content[0].text
     assert not [r for r in caplog.records if "Failed to parse" in r.getMessage()]
+
+
+class TestRead:
+    def test_list_stories_is_brief(self, make):
+        make.story(make.source("BBC", "center-left"), headline="Flood", tags='["Floods"]')
+        (story,) = call("list_stories", sort="latest")["stories"]
+        assert story["headline"] == "Flood" and story["outlets"] == ["BBC"]
+        assert "sources" not in story
+
+    def test_get_story_has_summaries_and_writeup_but_no_urls(self, make, db):
+        story = make.story(make.source())
+        writeups.save(db, "story", str(story.id), "T", "Body", "session")
+        got = call("get_story", cluster_id=story.id)
+        assert got["writeup"]["body"] == "Body"
+        assert "summary" in got["sources"][0] and "url" not in got["sources"][0]
+
+    def test_unknown_story(self):
+        with pytest.raises(ToolFailed, match="not found"):
+            call("get_story", cluster_id=999)
+
+    def test_search(self, make):
+        make.story(make.source(), headline="Hurricane makes landfall")
+        assert call("search_stories", q="hurricane")["total"] == 1
+
+    def test_thread_is_oldest_first_with_its_writeup(self, make, db):
+        src = make.source()
+        make.story(src, headline="Day 1", tags='["Smith trial"]', hours_ago=30)
+        make.story(src, headline="Day 2", tags='["Smith trial"]', hours_ago=2)
+        writeups.save(db, "thread", "Smith trial", "T", "So far", "routine")
+        got = call("get_thread", tag="Smith trial")
+        assert [s["headline"] for s in got["stories"]] == ["Day 1", "Day 2"]
+        assert got["writeup"]["body"] == "So far"
+
+    def test_unknown_thread(self):
+        with pytest.raises(ToolFailed, match="tagged"):
+            call("get_thread", tag="Nope")
+
+    def test_get_day_on_an_empty_database(self):
+        got = call("get_day")
+        assert got["stories"] == [] and got["writeup"] is None
+
+    def test_get_day_names_its_subject(self, make, db):
+        make.story(make.source(), make.source())
+        assert call("get_day")["subject"] == writeups.briefing_date(db)
+
+
+class TestWriteupTools:
+    def test_save_defaults_to_session_and_round_trips(self, make):
+        story = make.story(make.source())
+        saved = call("save_writeup", kind="story", subject=str(story.id), title="T", body="**B**")
+        assert saved["author"] == "session"
+        assert call("get_writeup", kind="story", subject=str(story.id))["body"] == "**B**"
+        assert call("delete_writeup", kind="story", subject=str(story.id)) == {"deleted": True}
+        with pytest.raises(ToolFailed, match="no story write-up"):
+            call("get_writeup", kind="story", subject=str(story.id))
+
+    def test_routine_is_refused_over_a_session_writeup(self, make):
+        story = make.story(make.source())
+        call("save_writeup", kind="story", subject=str(story.id), title="T", body="Mine")
+        with pytest.raises(ToolFailed, match="interactive session"):
+            call("save_writeup", kind="story", subject=str(story.id), title="T", body="R", author="routine")
+
+    def test_bad_kind_is_rejected(self):
+        with pytest.raises(ToolFailed):
+            call("save_writeup", kind="essay", subject="x", title="T", body="B")
