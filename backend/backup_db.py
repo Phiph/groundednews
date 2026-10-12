@@ -6,6 +6,7 @@ API or a fetch is writing. Runs once a day: later calls the same day are no-ops.
 Usage: python backup_db.py [--force]   (--force replaces today's backup)
 Also called at the start of fetch_articles.py, so the scheduled task keeps backups current.
 """
+import os
 import sqlite3
 import sys
 from contextlib import closing
@@ -16,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import DATABASE_URL, PROJECT_ROOT
 
-BACKUP_DIR = PROJECT_ROOT / "backups"
+BACKUP_DIR = Path(os.getenv("BACKUP_DIR", PROJECT_ROOT / "backups"))
 KEEP = 7
 
 
@@ -28,7 +29,7 @@ def backup(force: bool = False) -> Path | None:
     if not source.exists():
         return None
 
-    BACKUP_DIR.mkdir(exist_ok=True)
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     target = BACKUP_DIR / f"groundednews-{date.today().isoformat()}.db"
     if target.exists() and not force:
         return None

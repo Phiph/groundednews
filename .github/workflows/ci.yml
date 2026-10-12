@@ -85,6 +85,8 @@ jobs:
           context: .
           load: true
           tags: groundednews:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - run: python -m pytest backend/tests/test_container.py -q
         env:
           GROUNDEDNEWS_IMAGE: groundednews:test
@@ -140,3 +142,4 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
