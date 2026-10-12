@@ -17,7 +17,7 @@ No Anthropic API key is read by these scripts, and there is no Anthropic SDK dep
 Scheduling controls vary by Desktop version, mode, and plan. If recurring tasks/routines are available:
 
 1. Complete native setup and confirm `cli.py status` works.
-2. Give the tool-enabled session access to this checkout and a writable scratch directory outside the repository. Confirm it can run `venv/bin/python cli.py status` against your installation before enabling writes.
+2. Give the tool-enabled session access to this checkout, plus a writable scratch directory outside the repository if you use the script routine (the MCP routine needs none). Confirm it can run `venv/bin/python cli.py status` against your installation before enabling writes.
 3. Copy the [MCP routine](#mcp-routine) (or the [script routine](#reusable-analyst-routine)) into the task instructions. For the MCP routine, run the task from the checkout root and pre-approve the server with `"enabledMcpjsonServers": ["groundednews"]` in `.claude/settings.local.json`. For the script routine, replace both absolute path placeholders. Specify the intended database if you customized it.
 4. Run it manually once. Inspect its JSON, terminal results, Admin run history, and several multi-outlet story pages, including opinion flags and framing.
 5. Save it as a recurring task using the scheduling controls available to your account. Start with a modest frequency (for example, morning and evening) and adjust for feed volume and Claude usage limits.
@@ -40,7 +40,7 @@ Use this when the session has the `groundednews` MCP tools (see [Claude and the 
 
 1. **Fetch:** call `fetch_articles()`. It returns `run_id`, `status`, `error`, `articles_pending` (the count awaiting clustering, like the script's `articles_new`), `recent_clusters`, and `active_tags`. It doesn't return the articles themselves. If `status` reports an error, stop and report it.
 2. **Cluster:** page through `get_pending_articles(offset, limit)` until you have all `total` articles, then cluster them using [Step 2](#step-2-cluster-articles)'s rules.
-3. **Save clusters:** call `save_clusters(clusters, run_id)` with the same entry shapes as `clusters.json`. New stories need `headline` and `category`; `opinion_ids` must be in the entry's `article_ids`. The whole batch is rejected, and nothing is saved, if an ID is unknown, an article is in two entries, or a story would be emptied. Fix the batch and call it again. The result's `still_pending` should be 0.
+3. **Save clusters:** call `save_clusters(clusters, run_id)` with the same entry shapes as `clusters.json`. New stories need `headline` and `category`; `opinion_ids` must be in the entry's `article_ids`. The whole batch is rejected, and nothing is saved, if an ID is unknown, an article is in two entries, or a story is both emptied and given follow-ups. Moving all of a story's articles elsewhere is allowed; the empty story is deleted. Fix the batch and call it again. The result's `still_pending` should be 0.
 4. **Framing:** call `get_framing_candidates()` and, following [Step 4](#step-4-write-how-each-side-framed-it-notes)'s rules, save notes with `save_framing(notes)`.
 5. **Write-ups:** call `get_writeup_candidates()`. It lists today's `briefing`, up to 3 `threads`, and up to 5 `stories` that have no write-up or a stale one. Read each subject with `get_day`, `get_thread`, or `get_story`, then save it with `save_writeup(kind, subject, title, body, author="routine")`:
    - briefing (subject: `get_day`'s `subject` date): about 200–350 words, rewritten each run.

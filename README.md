@@ -193,7 +193,7 @@ Claude Code asks you to approve project MCP servers the first time. For unattend
 | Reading | `list_stories`, `get_story`, `search_stories`, `get_thread`, `get_day` |
 | Write-ups | `save_writeup`, `get_writeup`, `delete_writeup` |
 
-Unlike `save_clusters.py`, which warns and skips, the MCP `save_clusters` and `save_framing` tools validate the whole batch first and save nothing if any article or story ID is unknown, an article appears twice, or a story would be emptied. The `fetch_articles` tool also runs the daily backup.
+Unlike `save_clusters.py`, which warns and skips, the MCP `save_clusters` and `save_framing` tools validate the whole batch first and save nothing if any article or story ID is unknown, an article appears twice, or a story is both emptied (all its articles moved elsewhere) and given follow-ups. Emptying a story by moving its articles out is allowed; the empty story is deleted. The `fetch_articles` tool also runs the daily backup.
 
 **Write-ups** are Markdown pieces shown on the site: a story write-up (subject: cluster ID), a thread summary (subject: tag), and a daily briefing (subject: the date `get_day` returns). Each records whether it was written by the scheduled `routine` or an interactive `session`. The routine never overwrites a session-written write-up, so your own edits stay. A write-up is marked stale, with “N new articles since”, when its subject gains articles. The website only displays write-ups; you can't edit them there.
 
