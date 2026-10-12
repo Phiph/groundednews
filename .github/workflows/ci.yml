@@ -11,6 +11,33 @@ permissions:
   contents: read
 
 jobs:
+  commits:
+    name: Conventional commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: pip install conventional-pre-commit==4.4.0
+      - name: Check commit messages
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          status=0
+          for sha in $(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA"); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/msg"
+            if ! conventional-pre-commit --no-color "$RUNNER_TEMP/msg" > /dev/null; then
+              echo "::error::$(git log -1 --format='%h %s' "$sha") is not a Conventional Commit"
+              status=1
+            fi
+          done
+          exit $status
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest

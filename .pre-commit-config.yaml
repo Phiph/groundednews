@@ -1,0 +1,11 @@
+# Install with: pre-commit install
+# release-please derives versions and the changelog from Conventional Commits,
+# so commit messages are checked before they are recorded.
+default_install_hook_types: [commit-msg]
+
+repos:
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
