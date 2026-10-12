@@ -52,7 +52,10 @@ export function WriteupCard({ writeup }: { writeup?: Writeup | null }) {
           <span>
             {by} from the outlets&apos; headlines and summaries · updated {timeAgo(writeup.updated_at)}
             {writeup.stale &&
-              ` · ${writeup.new_articles} new ${writeup.new_articles === 1 ? "article" : "articles"} since`}
+              (writeup.new_articles > 0
+                ? ` · ${writeup.new_articles} new ${writeup.new_articles === 1 ? "article" : "articles"} since`
+                : // Only the briefing goes stale without new articles: yesterday's, shown until today's is written
+                  " · not yet updated for today")}
           </span>
         </p>
       </CardContent>
