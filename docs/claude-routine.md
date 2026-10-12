@@ -38,6 +38,15 @@ If scheduling is unavailable, run the same prompt manually in a tool-enabled ses
 
 Use this when the session has the `groundednews` MCP tools (see [Claude and the MCP server](../README.md#claude-and-the-mcp-server)). The role, clustering, opinion, tag, and framing rules are the same as in the [script routine](#reusable-analyst-routine) below; include those sections in your task instructions too. Only the commands change, and there is no scratch directory or `RUN_ID` substitution.
 
+Before running, install the backend requirements (including `mcp`) and run the routine from the repository root so `.mcp.json` and its relative paths resolve. For unattended runs, pre-approve the server in the checkout's `.claude/settings.local.json` (gitignored), merging these keys into any existing settings:
+
+```json
+{
+  "enabledMcpjsonServers": ["groundednews"],
+  "permissions": {"allow": ["mcp__groundednews"]}
+}
+```
+
 1. **Fetch:** call `fetch_articles()`. It returns `run_id`, `status`, `error`, `articles_pending` (the count awaiting clustering, like the script's `articles_new`), `recent_clusters`, and `active_tags`. It doesn't return the articles themselves. If `status` reports an error, stop and report it.
 2. **Cluster:** page through `get_pending_articles(offset, limit)` until you have all `total` articles, then cluster them using [Step 2](#step-2-cluster-articles)'s rules.
 3. **Save clusters:** call `save_clusters(clusters, run_id)` with the same entry shapes as `clusters.json`. New stories need `headline` and `category`; `opinion_ids` must be in the entry's `article_ids`. The whole batch is rejected, and nothing is saved, if an ID is unknown, an article is in two entries, or a story is both emptied and given follow-ups. Moving all of a story's articles elsewhere is allowed; the empty story is deleted. Fix the batch and call it again. The result's `still_pending` should be 0.
@@ -49,7 +58,6 @@ Use this when the session has the `groundednews` MCP tools (see [Claude and the 
 
    Write in Markdown and apply the framing notes' neutrality rules. Ground every claim in the returned headlines and summaries. The tools reject a routine save over a write-up written in an interactive session; skip it and move on.
 6. **Report** as in [Step 5](#step-5-report-results), adding the write-ups saved.
-
 If the `groundednews` tools are unavailable, run the script routine below for steps 1–4 and skip write-ups.
 
 ## Reusable analyst routine
