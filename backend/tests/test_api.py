@@ -98,7 +98,7 @@ class TestBriefing:
         assert get(client, "/api/briefing") == {
             "window_start": None, "window_end": None, "stories": [],
             "blindspots": {"left": [], "right": []}, "tags": [],
-            "totals": {"stories": 0, "articles": 0, "outlets": 0},
+            "totals": {"stories": 0, "articles": 0, "outlets": 0}, "writeup": None,
         }
 
     def test_shape_and_story_selection(self, client, make):
@@ -112,7 +112,7 @@ class TestBriefing:
 
         body = get(client, "/api/briefing")
 
-        assert set(body) == {"window_start", "window_end", "stories", "blindspots", "tags", "totals"}
+        assert set(body) == {"window_start", "window_end", "stories", "blindspots", "tags", "totals", "writeup"}
         story_ids = [s["id"] for s in body["stories"]]
         assert wide.id in story_ids and blindspot.id in story_ids
         assert opinion.id not in story_ids  # opinion-only
