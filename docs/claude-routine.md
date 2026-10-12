@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md)
 
-Complete the [local setup](../README.md#local-setup) first. For container-based runs, follow the [Docker setup and backup prerequisites](../README.md#docker-setup) and substitute the container commands for the native commands below. Check [configuration](../README.md#configuration-data-and-backups) if you use a custom database.
+Complete the [local setup](operations.md#local-setup) first. For container-based runs, follow the [Docker setup and backup prerequisites](operations.md#docker-setup) and substitute the container commands for the native commands below. Check [configuration](operations.md#configuration-data-and-backups) if you use a custom database.
 
 ## Claude Desktop automation without an API key
 
@@ -36,7 +36,7 @@ If scheduling is unavailable, run the same prompt manually in a tool-enabled ses
 
 ## MCP routine
 
-Use this when the session has the `groundednews` MCP tools (see [Claude and the MCP server](../README.md#claude-and-the-mcp-server)). The role, clustering, opinion, tag, and framing rules are the same as in the [script routine](#reusable-analyst-routine) below; include those sections in your task instructions too. Only the commands change, and there is no scratch directory or `RUN_ID` substitution.
+Use this when the session has the `groundednews` MCP tools (see [Claude and the MCP server](operations.md#claude-and-the-mcp-server)). The role, clustering, opinion, tag, and framing rules are the same as in the [script routine](#reusable-analyst-routine) below; include those sections in your task instructions too. Only the commands change, and there is no scratch directory or `RUN_ID` substitution.
 
 Before running, install the backend requirements (including `mcp`) and run the routine from the repository root so `.mcp.json` and its relative paths resolve. For unattended runs, pre-approve the server in the checkout's `.claude/settings.local.json` (gitignored), merging these keys into any existing settings:
 
