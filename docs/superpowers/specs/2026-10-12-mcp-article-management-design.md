@@ -92,26 +92,27 @@ message Claude can act on.
 - `get_framing_candidates(limit=12)` → `framing_candidates.candidates()`.
 - `save_framing(notes)` → `[{cluster_id, framing: {left?, center?, right?}}]`; validated, then
   saved via the framing-only path.
-- `get_writeup_candidates()` → what the routine should write this run:
-  - `briefing`: today's UTC date, always included unless a `session` write-up exists for it
+- `get_writeup_candidates()` → what the routine should write this run (subjects and a reason
+  only; the routine reads each with `get_day` / `get_thread` / `get_story`, keeping results small):
+  - `briefing`: the UTC date of the newest story (the date `/api/briefing`'s window ends on),
+    always included unless a `session` write-up exists for it
   - `threads`: up to 3 tags from `active_tags` that gained stories since their write-up (or have
     none), most active first
   - `stories`: up to 5 multi-side clusters (≥2 sides) in the Top window with no write-up or a
     stale one, ranked by `top_score`
+  - threads qualify with 2+ stories in the last 14 days, one of them updated in the last 2 days
   - Session-authored write-ups are excluded from all three.
-  - Each candidate includes the source material needed to write it (story: articles by side +
-    framing; thread: its stories in time order; briefing: the day's data).
 
 ### Reading (interactive sessions)
 
-- `list_stories(sort="top", category=None, tag=None, since=None, limit=20)`
+- `list_stories(sort="top", category=None, tag=None, opinion=None, limit=20)`
 - `get_story(cluster_id)` → story, articles grouped by side, framing, write-up (with `stale`)
 - `search_stories(q, limit=20)` → FTS5 search, same as `/api/search`
-- `get_thread(tag, days=14)` → the tag's stories in time order, plus its write-up
-- `get_day(date=None)` → the `/api/briefing` payload for that day, plus its write-up
+- `get_thread(tag, limit=30)` → the tag's latest stories, oldest first, plus its write-up
+- `get_day()` → the current `/api/briefing` payload, its write-up, and the `subject` date to save it under
 
-These reuse the serialization helpers in `main.py` (moved to a shared module if importing
-`main` would be awkward), so the MCP and the API return the same shapes.
+These call the API's endpoint functions in `main.py` directly (passing `session=`), so the MCP
+and the site see the same stories; results are trimmed (no URLs or images) to stay small.
 
 ### Writing
 
@@ -168,8 +169,12 @@ Fallback: if the `groundednews` MCP tools are unavailable, use the existing scri
 - `save_clusters` and `save_framing` validate the full batch before writing (the CLI script keeps
   its current lenient warn-and-skip behaviour).
 - **stdout hygiene:** stdio carries the MCP protocol, and existing modules `print` (e.g.
-  `backup_db`). Tool bodies run with `contextlib.redirect_stdout(sys.stderr)` so stray output
-  can't corrupt the stream.
+  `save_clusters()` prints its counts). Checked against `mcp` 2.3.0: its own stdout diversion
+  does not stop these reaching the wire. Tool bodies run under a lock with
+  `contextlib.redirect_stdout(sys.stderr)`; the lock serialises tool calls (they run in worker
+  threads and the redirect is process-wide).
+- **Deleted stories:** when `save_clusters()` deletes a story emptied by moving its articles,
+  it deletes that story's write-up too, so a later cluster reusing the id can't inherit it.
 - **SQLite contention:** the engine gets `connect_args={"timeout": 30}` (busy timeout) so a
   concurrent API write waits instead of failing with "database is locked".
 - Fetch failures are reported in `fetch_articles()`'s result (`status`, `error`), not raised.
