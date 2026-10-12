@@ -1,0 +1,12 @@
+services:
+  groundednews:
+    image: ghcr.io/phiph/groundednews:latest
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - groundednews-data:/data
+    restart: unless-stopped
+
+volumes:
+  groundednews-data:

@@ -1,0 +1,9 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "groundednews",
+      "include-component-in-tag": false
+    }
+  }
+}

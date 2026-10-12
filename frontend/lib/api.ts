@@ -1,6 +1,6 @@
 import type { components } from "./api-schema";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 // Response types are generated from the backend's response models (backend/schemas.py,
 // backend/models.py). After changing those, run `npm run gen:api` to refresh lib/api-schema.ts.
