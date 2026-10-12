@@ -109,7 +109,24 @@ docker compose up -d --no-build
 
 The image is `ghcr.io/phiph/groundednews:latest`; versioned tags are also published for pinning. Images currently target Linux amd64. See the [existing deployment and release details](frontend/README.md#groundednews-docker-deployment) for bind mounts, permissions, and release configuration.
 
-**Docker and native installations use different databases by default.** The routine below targets the native checkout. To operate on Docker's data, execute the scripts inside the running container instead:
+**Docker and native installations use different databases by default.** The routine below targets the native checkout. To operate on Docker's data, execute the scripts inside the running container instead.
+
+**Before using the Docker fetch script**, configure a persistent, writable backup directory. Fetching calls the backup helper unconditionally and will fail with a permission error under the default Compose setup because `/app/backups` is not writable. On a Linux host:
+
+```bash
+mkdir -p /absolute/path/to/groundednews-backups
+sudo chown 10001:10001 /absolute/path/to/groundednews-backups
+```
+
+Add this bind mount to the existing `groundednews` service's `volumes` list in `compose.yaml`, **keeping** the existing `groundednews-data:/data` mount:
+
+```yaml
+      - type: bind
+        source: /absolute/path/to/groundednews-backups
+        target: /app/backups
+```
+
+Recreate the service with `docker compose up -d` to apply the mount. Confirm it is writable by container UID 10001 (Docker Desktop host permissions can differ), then run the analyst commands:
 
 ```bash
 docker compose exec -T groundednews python /app/backend/fetch_articles.py > /absolute/path/to/scratch/fetch.json
