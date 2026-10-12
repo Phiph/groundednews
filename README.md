@@ -2,7 +2,7 @@
 
 A personal news aggregation platform inspired by Ground News. GroundedNews collects RSS articles from outlets across the political spectrum and groups coverage of the **same event** into a single story, so you can compare headlines, spot coverage gaps, and see how different sides framed the news.
 
-The web app and RSS fetcher run locally without an AI API key. Clustering and framing are a separate analyst step: you can use a tool-enabled Claude Desktop session or recurring routine, using your Claude account rather than the Anthropic API. **Installing the app does not automatically enable AI clustering or schedule a routine.**
+The web app and RSS fetcher run locally without an AI API key. Clustering, framing, and write-ups are a separate analyst step: you can use a tool-enabled Claude Desktop session or recurring routine, using your Claude account rather than the Anthropic API. Claude works on the database through the bundled [MCP server](#claude-and-the-mcp-server) or, as a fallback, the analyst scripts. **Installing the app does not automatically enable AI clustering or schedule a routine.**
 
 ## Contents
 
@@ -11,15 +11,16 @@ The web app and RSS fetcher run locally without an AI API key. Clustering and fr
 - [Docker setup](#docker-setup)
 - [Populate your news feed](#populate-your-news-feed)
 - [Claude Desktop automation without an API key](#claude-desktop-automation-without-an-api-key)
+- [Claude and the MCP server](#claude-and-the-mcp-server)
 - [Configuration, data, and backups](#configuration-data-and-backups)
 - [Development and tests](#development-and-tests)
 - [Troubleshooting](#troubleshooting)
 
 ## What you can do
 
-- **Home:** browse stories by category or ongoing-story tag, sort by latest or top coverage, filter by source count, and include or exclude opinion.
-- **Story pages:** compare outlet headlines and summaries, follow coverage over time, open original articles, and read side-by-side framing notes when an analyst has written them.
-- **Briefing:** catch up on prominent stories and coverage gaps.
+- **Home:** browse stories by category or ongoing-story tag, sort by latest or top coverage, filter by source count, and include or exclude opinion. Filtering by a tag shows its thread write-up (“where things stand”), if one exists.
+- **Story pages:** compare outlet headlines and summaries, follow coverage over time, open original articles, and read side-by-side framing notes and a longer story write-up when an analyst has written them.
+- **Briefing:** catch up on prominent stories and coverage gaps, headed by a written “day in brief” when one exists.
 - **Blindspot:** find stories predominantly covered by one side but absent from the other.
 - **Search:** search story headlines, summaries, tags, and outlet article titles using SQLite full-text search.
 - **Sources:** inspect outlet coverage and feed health. **Admin** lets you manage RSS feeds and bias labels, trigger a fetch, and inspect run history and clustering quality.
@@ -147,14 +148,15 @@ RSS feeds → fetch_articles.py → raw articles in SQLite
                                      ↓
                          Claude / human analyst
                                      ↓
-                          cluster and framing JSON
+                cluster, framing and write-up content
                                      ↓
-                           save_clusters.py → web app
+            MCP tools (or save_clusters.py) → SQLite → web app
 ```
 
-1. Fetch articles through Admin, `venv/bin/python cli.py scrape`, or the routine's `fetch_articles.py` command.
-2. Have an analyst group them into stories, then save the cluster JSON.
+1. Fetch articles through Admin, `venv/bin/python cli.py scrape`, the MCP `fetch_articles` tool, or the `fetch_articles.py` script.
+2. Have an analyst group them into stories and save the clusters.
 3. Generate framing candidates, write grounded notes, and save them separately.
+4. Optionally write story, thread, and briefing write-ups. These can only be saved through the MCP server; the scripts have no write-up step.
 
 The web scraper and CLI scraper **do not perform AI analysis**. The routine's fetch includes recent unclustered leftovers from those scrapes, so they can be clustered on the next run.
 
@@ -173,7 +175,31 @@ For machine-readable analyst input, use `backend/fetch_articles.py`, not `cli.py
 
 Use a tool-enabled Claude Desktop session to cluster articles and write framing notes with your Claude account, without an Anthropic API key. Local file and shell access are required; account limits and scheduling availability still apply.
 
-See the [Claude automation guide and reusable analyst routine](docs/claude-routine.md) for permissions, scheduling, safety checks, and the complete five-step prompt.
+See the [Claude automation guide and reusable analyst routine](docs/claude-routine.md) for permissions, scheduling, safety checks, and the complete routine prompt.
+
+## Claude and the MCP server
+
+`backend/mcp_server.py` is a stdio [MCP](https://modelcontextprotocol.io) server that gives Claude typed tools over the GroundedNews database. It opens SQLite directly, so the web app does not need to be running. The committed `.mcp.json` registers it as `groundednews` for Claude Code sessions started in the repository root:
+
+```json
+{"mcpServers": {"groundednews": {"command": "venv/bin/python", "args": ["backend/mcp_server.py"]}}}
+```
+
+Claude Code asks you to approve project MCP servers the first time. For unattended routines, pre-approve it by adding `"enabledMcpjsonServers": ["groundednews"]` to the checkout's `.claude/settings.local.json` (Git ignores this file), so a scheduled run never stops at an approval prompt.
+
+| Group | Tools |
+| --- | --- |
+| Pipeline | `fetch_articles`, `get_pending_articles`, `save_clusters`, `get_framing_candidates`, `save_framing`, `get_writeup_candidates` |
+| Reading | `list_stories`, `get_story`, `search_stories`, `get_thread`, `get_day` |
+| Write-ups | `save_writeup`, `get_writeup`, `delete_writeup` |
+
+Unlike `save_clusters.py`, which warns and skips, the MCP `save_clusters` and `save_framing` tools validate the whole batch first and save nothing if any article or story ID is unknown, an article appears twice, or a story would be emptied. The `fetch_articles` tool also runs the daily backup.
+
+**Write-ups** are Markdown pieces shown on the site: a story write-up (subject: cluster ID), a thread summary (subject: tag), and a daily briefing (subject: the date `get_day` returns). Each records whether it was written by the scheduled `routine` or an interactive `session`. The routine never overwrites a session-written write-up, so your own edits stay. A write-up is marked stale, with “N new articles since”, when its subject gains articles. The website only displays write-ups; you can't edit them there.
+
+In an interactive session you can ask Claude to read stories (“summarise the top stories today”) or write and rewrite write-ups. See the [routine guide](docs/claude-routine.md#mcp-routine) for the scheduled flow.
+
+To use the MCP server against the Docker database, point the MCP command at the container instead, for example `"command": "docker", "args": ["compose", "exec", "-T", "groundednews", "python", "/app/backend/mcp_server.py"]`. The `fetch_articles` tool needs the writable backup mount described in [Docker setup](#docker-setup).
 
 ## Configuration, data, and backups
 
@@ -212,13 +238,15 @@ Environment files, databases, and native backups are ignored by Git. Keep scratc
 | `backend/models.py`, `schemas.py`, `database.py` | SQLModel storage, API models, SQLite initialization and seeded feeds |
 | `backend/scraper.py`, `fetch_articles.py` | RSS collection and analyst input |
 | `backend/save_clusters.py`, `framing_candidates.py` | Analyst outputs and framing work queue |
+| `backend/mcp_server.py`, `.mcp.json` | MCP server for Claude sessions and routines |
+| `backend/writeups.py`, `writeup_candidates.py` | Write-up storage, staleness and the routine's write-up queue |
 | `backend/bias.py`, `backup_db.py` | Coverage rules and daily backups |
 | `backend/tests/` | Pytest coverage, including opt-in Docker smoke tests |
 | `frontend/app/`, `components/`, `lib/` | Next.js App Router UI, components, API client and browser history |
 | `cli.py`, `start.sh` | Local management and development launcher |
 | `Dockerfile`, `compose.yaml` | Combined production container |
 
-The UI uses React, TypeScript, Tailwind CSS, and shadcn/Radix components. FastAPI exposes its schema at `/openapi.json`; use `/docs` to explore request and response models. Common endpoints include `/api/clusters`, `/api/search`, `/api/sources`, `/api/stats`, `/api/runs`, and `/api/scrape`.
+The UI uses React, TypeScript, Tailwind CSS, and shadcn/Radix components. FastAPI exposes its schema at `/openapi.json`; use `/docs` to explore request and response models. Common endpoints include `/api/clusters`, `/api/search`, `/api/briefing`, `/api/threads/{tag}` (a thread's write-up), `/api/sources`, `/api/stats`, `/api/runs`, and `/api/scrape`. Write-ups are read-only over the HTTP API; only the MCP server writes them.
 
 From the repository root:
 
@@ -233,6 +261,12 @@ Normal backend tests use temporary databases and skip the opt-in container test.
 
 ```bash
 venv/bin/python -m pytest backend/tests/test_agent_scripts.py backend/tests/test_fetch_articles.py backend/tests/test_save_clusters.py -q
+```
+
+For the MCP server and write-ups:
+
+```bash
+venv/bin/python -m pytest backend/tests/test_mcp_server.py backend/tests/test_writeups.py backend/tests/test_writeup_candidates.py backend/tests/test_writeup_api.py -q
 ```
 
 After changing backend response models, regenerate the checked-in frontend API types:
@@ -264,5 +298,7 @@ CI runs backend tests, frontend lint/build, and the container smoke test. See [r
 | Wrong database or no changes visible | Check `.groundednews_env`, exported `DATABASE_URL`, and whether you mixed native and Docker installations. |
 | “Database is locked” or conflicting runs | Stop overlapping fetch/save jobs and retry only after checking what was already saved. |
 | Claude cannot execute a command | Confirm the selected Desktop mode has local shell/file tools and permissions; ordinary chat is insufficient. |
+| `groundednews` MCP tools missing | Start Claude Code from the repository root, so the relative `venv/bin/python` in `.mcp.json` resolves, and check that backend requirements, which include `mcp`, are installed. Approve the server, or add it to `enabledMcpjsonServers`. |
+| Routine didn't update a write-up | Write-ups saved from an interactive session are never overwritten by the routine. Delete the write-up with `delete_writeup` to hand it back. |
 | Invalid JSON or skipped IDs | Inspect scratch files; use real integer IDs, a JSON array, and a file path rather than inline JSON. |
 | Docker data disappears | Check the named volume; `down -v` deletes it. Back up data independently. |
