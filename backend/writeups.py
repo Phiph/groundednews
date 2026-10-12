@@ -129,3 +129,15 @@ def public(session: Session, writeup: Writeup) -> dict:
 def writeup_for(session: Session, kind: str, subject: str) -> Optional[dict]:
     writeup = get(session, kind, subject)
     return public(session, writeup) if writeup else None
+
+
+def briefing_writeup(session: Session) -> Optional[dict]:
+    """The write-up for the current briefing. Until the routine writes the new UTC day's, the
+    previous day's stands in (marked stale), since the 24h window still mostly covers it."""
+    current = briefing_date(session)
+    if found := writeup_for(session, "briefing", current):
+        return found
+    previous = (date.fromisoformat(current) - timedelta(days=1)).isoformat()
+    if found := writeup_for(session, "briefing", previous):
+        return {**found, "stale": True}
+    return None

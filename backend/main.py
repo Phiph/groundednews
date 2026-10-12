@@ -207,9 +207,6 @@ def search(
     return {"total": len(clusters), "results": [_serialize(c, grouped[c.id]) for c in page]}
 
 
-BRIEFING_WINDOW = timedelta(hours=24)
-
-
 @app.get("/api/briefing", response_model=schemas.Briefing)
 def briefing(session: Session = Depends(get_session)):
     """The day in brief: the most widely covered news across the spectrum, each side's biggest
@@ -219,7 +216,7 @@ def briefing(session: Session = Depends(get_session)):
     if not newest:
         return {"window_start": None, "window_end": None, "stories": [], "blindspots": {"left": [], "right": []},
                 "tags": [], "totals": {"stories": 0, "articles": 0, "outlets": 0}, "writeup": None}
-    start = newest - BRIEFING_WINDOW
+    start = newest - writeups.BRIEFING_WINDOW
     # Blindspots are rarer, so they're drawn from the wider Top-feed window
     clusters = session.exec(select(Cluster).where(Cluster.last_updated >= newest - TOP_WINDOW)).all()
     grouped = _articles_by_cluster(session, [c.id for c in clusters])
@@ -242,7 +239,7 @@ def briefing(session: Session = Depends(get_session)):
             "articles": sum(r["article_count"] for r in stories),
             "outlets": len({src["source_id"] for r in stories for src in r["sources"]}),
         },
-        "writeup": writeups.writeup_for(session, "briefing", newest.date().isoformat()),
+        "writeup": writeups.briefing_writeup(session),
     }
 
 

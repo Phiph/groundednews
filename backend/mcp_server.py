@@ -152,6 +152,12 @@ def save_clusters(clusters: list[StoryEntry], run_id: int = 0) -> dict:
             raise ValueError(f"unknown article ids: {missing}")
         if unknown := _unknown(s, Cluster.id, {e.cluster_id for e in clusters if e.cluster_id is not None}):
             raise ValueError(f"unknown cluster ids: {unknown}")
+        # The writer deletes a story left with no articles, so it can't also take follow-ups
+        for cid in {e.cluster_id for e in clusters if e.cluster_id is not None}:
+            current = set(s.exec(select(Article.id).where(Article.cluster_id == cid)).all())
+            if current and all(aid in placed and clusters[placed[aid]].cluster_id != cid for aid in current):
+                raise ValueError(f"story {cid} would be emptied by this batch (all its articles move to "
+                                 "other entries) and can't also take follow-ups")
     counts = save_cluster_entries(run_id, [e.model_dump(exclude_none=True) for e in clusters])
     with session() as s:
         return {**counts, "still_pending": len(pending_articles(s))}

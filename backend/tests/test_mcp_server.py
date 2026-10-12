@@ -99,6 +99,20 @@ class TestSaveClusters:
             call("save_clusters", clusters=entries)
         assert db.exec(select(Cluster)).all() == []
 
+    def test_a_story_emptied_by_the_batch_cant_also_take_follow_ups(self, make, db):
+        src = make.source()
+        story = make.story(src)
+        moved = db.exec(select(Article).where(Article.cluster_id == story.id)).one()
+        fresh = make.article(src)
+        before = len(db.exec(select(Cluster)).all())
+        with pytest.raises(ToolFailed, match="emptied"):
+            call("save_clusters", clusters=[
+                {"headline": "H", "category": "World", "article_ids": [moved.id]},
+                {"cluster_id": story.id, "article_ids": [fresh.id]},
+            ])
+        db.expire_all()
+        assert len(db.exec(select(Cluster)).all()) == before
+
 
 class TestFraming:
     def test_saves_notes(self, make, db):

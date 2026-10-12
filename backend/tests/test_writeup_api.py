@@ -1,9 +1,11 @@
 """Write-ups as the site reads them: on story detail, on the briefing, and per thread."""
 import json
+from datetime import date, timedelta
 from urllib.parse import quote
 
 import pytest
 
+import writeup_candidates
 import writeups
 
 
@@ -37,3 +39,35 @@ def test_thread_writeup_by_tag(client, make, db, tag):
     r = client.get(url)
     assert r.status_code == 200, r.text
     assert (r.json()["subject"], r.json()["author"]) == (tag, "session")
+
+
+class TestBriefingRollover:
+    """Just after UTC midnight the window still mostly belongs to the previous day."""
+
+    def _yesterday(self, db):
+        return (date.fromisoformat(writeups.briefing_date(db)) - timedelta(days=1)).isoformat()
+
+    def test_falls_back_to_yesterdays_writeup_marked_stale(self, client, make, db):
+        make.story(make.source())
+        writeups.save(db, "briefing", self._yesterday(db), "Yesterday", "Text", "routine")
+        w = client.get("/api/briefing").json()["writeup"]
+        assert (w["title"], w["subject"], w["stale"]) == ("Yesterday", self._yesterday(db), True)
+
+    def test_todays_writeup_wins(self, client, make, db):
+        make.story(make.source())
+        writeups.save(db, "briefing", self._yesterday(db), "Yesterday", "Text", "routine")
+        writeups.save(db, "briefing", writeups.briefing_date(db), "Today", "Text", "routine")
+        w = client.get("/api/briefing").json()["writeup"]
+        assert (w["title"], w["stale"]) == ("Today", False)
+
+    def test_a_two_day_old_writeup_is_not_shown(self, client, make, db):
+        make.story(make.source())
+        old = (date.fromisoformat(writeups.briefing_date(db)) - timedelta(days=2)).isoformat()
+        writeups.save(db, "briefing", old, "Old", "Text", "routine")
+        assert client.get("/api/briefing").json()["writeup"] is None
+
+    def test_routine_is_still_offered_the_new_date(self, make, db):
+        make.story(make.source())
+        writeups.save(db, "briefing", self._yesterday(db), "Yesterday", "Text", "routine")
+        got = writeup_candidates.candidates(db)["briefing"]
+        assert got["subject"] == writeups.briefing_date(db)

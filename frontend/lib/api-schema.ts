@@ -313,7 +313,7 @@ export interface components {
             /** Tags */
             tags: components["schemas"]["TagCount"][];
             totals: components["schemas"]["BriefingTotals"];
-            /** @description The written briefing for window_end's date */
+            /** @description The written briefing for window_end's date; until the new day's is written, the previous day's (marked stale) */
             writeup?: components["schemas"]["Writeup"] | null;
         };
         /** BriefingBlindspots */

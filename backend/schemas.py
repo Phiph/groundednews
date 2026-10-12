@@ -139,7 +139,7 @@ class Briefing(BaseModel):
     blindspots: BriefingBlindspots = Field(description="Up to 3 per side, from the wider 72h window")
     tags: list[TagCount]
     totals: BriefingTotals
-    writeup: Optional[Writeup] = Field(default=None, description="The written briefing for window_end's date")
+    writeup: Optional[Writeup] = Field(default=None, description="The written briefing for window_end's date; until the new day's is written, the previous day's (marked stale)")
 
 
 class QualityDay(BaseModel):
