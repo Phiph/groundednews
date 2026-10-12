@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from database import engine, init_db, seed_sources, get_session
 from models import Source, SourcePublic, Article, Cluster, ScrapeRun, ScrapeRunPublic
 import schemas
+import writeups
 from fetch_articles import fetch_new_articles, tag_counts
 from bias import BLINDSPOT_MIN_SOURCES, bias_breakdown, top_score as _top_score
 from timeutil import utcnow
@@ -160,7 +161,8 @@ def get_cluster(cluster_id: int, session: Session = Depends(get_session)):
     cluster = session.get(Cluster, cluster_id)
     if not cluster:
         raise HTTPException(status_code=404, detail="Cluster not found")
-    return _serialize(cluster, _articles_by_cluster(session, [cluster_id])[cluster_id], with_summaries=True)
+    detail = _serialize(cluster, _articles_by_cluster(session, [cluster_id])[cluster_id], with_summaries=True)
+    return {**detail, "writeup": writeups.writeup_for(session, "story", str(cluster_id))}
 
 
 # Column weights for story_fts (headline, summary, tags, outlet titles)
@@ -205,9 +207,6 @@ def search(
     return {"total": len(clusters), "results": [_serialize(c, grouped[c.id]) for c in page]}
 
 
-BRIEFING_WINDOW = timedelta(hours=24)
-
-
 @app.get("/api/briefing", response_model=schemas.Briefing)
 def briefing(session: Session = Depends(get_session)):
     """The day in brief: the most widely covered news across the spectrum, each side's biggest
@@ -216,8 +215,8 @@ def briefing(session: Session = Depends(get_session)):
     newest = session.exec(select(Cluster.last_updated).order_by(Cluster.last_updated.desc())).first()
     if not newest:
         return {"window_start": None, "window_end": None, "stories": [], "blindspots": {"left": [], "right": []},
-                "tags": [], "totals": {"stories": 0, "articles": 0, "outlets": 0}}
-    start = newest - BRIEFING_WINDOW
+                "tags": [], "totals": {"stories": 0, "articles": 0, "outlets": 0}, "writeup": None}
+    start = newest - writeups.BRIEFING_WINDOW
     # Blindspots are rarer, so they're drawn from the wider Top-feed window
     clusters = session.exec(select(Cluster).where(Cluster.last_updated >= newest - TOP_WINDOW)).all()
     grouped = _articles_by_cluster(session, [c.id for c in clusters])
@@ -240,6 +239,7 @@ def briefing(session: Session = Depends(get_session)):
             "articles": sum(r["article_count"] for r in stories),
             "outlets": len({src["source_id"] for r in stories for src in r["sources"]}),
         },
+        "writeup": writeups.briefing_writeup(session),
     }
 
 
@@ -268,6 +268,15 @@ def clustering_quality(days: int = 14, session: Session = Depends(get_session)):
 def list_tags(days: int = 7, limit: int = 20, session: Session = Depends(get_session)):
     """Most active ongoing-story tags, by number of stories updated in the last `days`."""
     return [{"tag": t, "count": n} for t, n in tag_counts(session, utcnow() - timedelta(days=days))[:limit]]
+
+
+@app.get("/api/threads/{tag:path}", response_model=schemas.Writeup)
+def get_thread_writeup(tag: str, session: Session = Depends(get_session)):
+    """The "where things stand" summary for an ongoing tag. `:path` lets tags contain "/"."""
+    writeup = writeups.writeup_for(session, "thread", tag)
+    if not writeup:
+        raise HTTPException(status_code=404, detail="No summary for this thread yet")
+    return writeup
 
 
 # ── Sources ──────────────────────────────────────────────────────────────────

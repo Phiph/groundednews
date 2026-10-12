@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "groundednews": {
+      "command": "venv/bin/python",
+      "args": ["backend/mcp_server.py"]
+    }
+  }
+}

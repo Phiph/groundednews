@@ -1,7 +1,11 @@
 from sqlmodel import create_engine, Session, SQLModel
 from config import DATABASE_URL
 
-engine = create_engine(DATABASE_URL, echo=False)
+# The API and the MCP server can write at the same moment; wait for the lock instead of failing
+engine = create_engine(
+    DATABASE_URL, echo=False,
+    connect_args={"timeout": 30} if DATABASE_URL.startswith("sqlite") else {},
+)
 
 
 # Columns added after the initial schema; create_all() won't add them to existing tables

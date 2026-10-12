@@ -18,6 +18,7 @@ import { BiasBar } from "@/components/news/bias-bar";
 import { StoryCard } from "@/components/news/story-card";
 import { FeedSkeleton, StoryRowSkeleton } from "@/components/news/story-skeleton";
 import { TagLink } from "@/components/news/tag-link";
+import { WriteupCard } from "@/components/news/writeup-card";
 
 const CATEGORIES = ["Politics", "World", "Business", "Tech", "Science", "Health", "Sports", "Entertainment", "Environment"];
 const PAGE_SIZE = 30;
@@ -70,6 +71,7 @@ function Home() {
   );
   const trending = useApi("tags", () => api.getTags());
   const blindspots = useApi("blindspots", () => api.getClusters({ blindspot: "any", sort: "top", limit: 5 }));
+  const thread = useApi(`thread|${tag ?? ""}`, () => (tag ? api.getThreadWriteup(tag) : Promise.resolve(null)));
 
   const list = stories.data ?? [];
   const canLoadMore = list.length === limit;
@@ -156,6 +158,7 @@ function Home() {
           </div>
 
           {stories.error && <ErrorBanner>{stories.error}</ErrorBanner>}
+          {tag && thread.data?.subject === tag && <WriteupCard writeup={thread.data} />}
 
           {!stories.data && stories.loading ? (
             <FeedSkeleton />

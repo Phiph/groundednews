@@ -5,7 +5,7 @@ to regenerate frontend/lib/api-schema.ts. Descriptions become doc comments there
 """
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, NaiveDatetime
 
 from models import ScrapeRunPublic, SourcePublic
 
@@ -38,6 +38,19 @@ class Bias(BaseModel):
         description="Side that is largely ignoring the story, if any")
 
 
+class Writeup(BaseModel):
+    """A longer AI-written piece in Markdown: a story write-up, a day's briefing or a thread summary."""
+    kind: Literal["story", "briefing", "thread"]
+    subject: str = Field(description="Cluster id, UTC date (YYYY-MM-DD) or tag")
+    title: str
+    body: str = Field(description="Markdown")
+    author: Literal["routine", "session"] = Field(
+        description='"routine" = drafted by the scheduled task; "session" = written in an interactive session')
+    updated_at: NaiveDatetime
+    stale: bool = Field(description="Coverage has grown since it was written")
+    new_articles: int = Field(description="Articles added since it was written")
+
+
 class Cluster(BaseModel):
     """A story: articles from several outlets about the same event."""
     id: int
@@ -59,6 +72,7 @@ class Cluster(BaseModel):
 
 class ClusterDetail(Cluster):
     sources: list[ClusterSourceDetail]
+    writeup: Optional[Writeup] = None
 
 
 class SearchResults(BaseModel):
@@ -125,6 +139,7 @@ class Briefing(BaseModel):
     blindspots: BriefingBlindspots = Field(description="Up to 3 per side, from the wider 72h window")
     tags: list[TagCount]
     totals: BriefingTotals
+    writeup: Optional[Writeup] = Field(default=None, description="The written briefing for window_end's date; until the new day's is written, the previous day's (marked stale)")
 
 
 class QualityDay(BaseModel):

@@ -122,6 +122,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/threads/{tag}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Thread Writeup
+         * @description The "where things stand" summary for an ongoing tag. `:path` lets tags contain "/".
+         */
+        get: operations["get_thread_writeup_api_threads__tag__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources/summary": {
         parameters: {
             query?: never;
@@ -293,6 +313,8 @@ export interface components {
             /** Tags */
             tags: components["schemas"]["TagCount"][];
             totals: components["schemas"]["BriefingTotals"];
+            /** @description The written briefing for window_end's date; until the new day's is written, the previous day's (marked stale) */
+            writeup?: components["schemas"]["Writeup"] | null;
         };
         /** BriefingBlindspots */
         BriefingBlindspots: {
@@ -407,6 +429,7 @@ export interface components {
             is_opinion: boolean;
             /** Sources */
             sources: components["schemas"]["ClusterSourceDetail"][];
+            writeup?: components["schemas"]["Writeup"] | null;
         };
         /**
          * ClusterSource
@@ -726,6 +749,50 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /**
+         * Writeup
+         * @description A longer AI-written piece in Markdown: a story write-up, a day's briefing or a thread summary.
+         */
+        Writeup: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "story" | "briefing" | "thread";
+            /**
+             * Subject
+             * @description Cluster id, UTC date (YYYY-MM-DD) or tag
+             */
+            subject: string;
+            /** Title */
+            title: string;
+            /**
+             * Body
+             * @description Markdown
+             */
+            body: string;
+            /**
+             * Author
+             * @description "routine" = drafted by the scheduled task; "session" = written in an interactive session
+             * @enum {string}
+             */
+            author: "routine" | "session";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Stale
+             * @description Coverage has grown since it was written
+             */
+            stale: boolean;
+            /**
+             * New Articles
+             * @description Articles added since it was written
+             */
+            new_articles: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -909,6 +976,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TagCount"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_thread_writeup_api_threads__tag__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Writeup"];
                 };
             };
             /** @description Validation Error */

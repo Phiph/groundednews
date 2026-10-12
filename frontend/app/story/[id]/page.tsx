@@ -20,6 +20,7 @@ import { OpinionBadge } from "@/components/news/opinion-badge";
 import { StoryCard } from "@/components/news/story-card";
 import { StoryTimeline } from "@/components/news/story-timeline";
 import { TagLink } from "@/components/news/tag-link";
+import { WriteupCard } from "@/components/news/writeup-card";
 
 export default function StoryPage() {
   const { id } = useParams<{ id: string }>();
@@ -108,6 +109,7 @@ export default function StoryPage() {
             )}
           </CardContent>
         </Card>
+        <WriteupCard writeup={s.writeup} />
         <FramingCard framing={s.framing} />
         <StoryTimeline sources={s.sources} />
       </div>
