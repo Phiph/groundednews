@@ -111,22 +111,7 @@ The image is `ghcr.io/phiph/groundednews:latest`; versioned tags are also publis
 
 **Docker and native installations use different databases by default.** The [analyst routine](docs/claude-routine.md#reusable-analyst-routine) targets the native checkout. To operate on Docker's data, execute the scripts inside the running container instead.
 
-**Before using the Docker fetch script**, configure a persistent, writable backup directory. Fetching calls the backup helper unconditionally and will fail with a permission error under the default Compose setup because `/app/backups` is not writable. On a Linux host:
-
-```bash
-mkdir -p /absolute/path/to/groundednews-backups
-sudo chown 10001:10001 /absolute/path/to/groundednews-backups
-```
-
-Add this bind mount to the existing `groundednews` service's `volumes` list in `compose.yaml`, **keeping** the existing `groundednews-data:/data` mount:
-
-```yaml
-      - type: bind
-        source: /absolute/path/to/groundednews-backups
-        target: /app/backups
-```
-
-Recreate the service with `docker compose up -d` to apply the mount. Confirm it is writable by container UID 10001 (Docker Desktop host permissions can differ), then run the analyst commands:
+Daily backups taken by the fetch script go to `/data/backups`, inside the same `groundednews-data` volume. The CLI is also available in the container, for example `docker compose exec groundednews python /app/cli.py status`. To run the analyst commands:
 
 ```bash
 docker compose exec -T groundednews python /app/backend/fetch_articles.py > /absolute/path/to/scratch/fetch.json
@@ -206,6 +191,7 @@ To use the MCP server against the Docker database, point the MCP command at the 
 | Setting | Default / behavior |
 | --- | --- |
 | `DATABASE_URL` | `sqlite:///./backend/groundednews.db`; this relative form is resolved against the project root |
+| `BACKUP_DIR` | `backups/` under the project root; the Docker image sets `/data/backups` |
 | `.groundednews_env` | Loaded by backend configuration, including standalone scripts; existing environment variables take precedence |
 | `.env` | Exported by `start.sh`, **not automatically loaded by standalone backend scripts** |
 | `NEXT_PUBLIC_API_URL` | Optional frontend API origin override; normally leave unset to use the same-origin proxy; applied at frontend build time |
@@ -214,7 +200,7 @@ To use the same custom database for the app and routine, put its `DATABASE_URL` 
 
 The implementation relies on SQLite, including FTS5 search and SQLite-specific schema initialization. Changing `DATABASE_URL` does not make other database engines supported.
 
-`fetch_articles.py` calls the SQLite online backup API before fetching. Backups live in root `backups/groundednews-YYYY-MM-DD.db`, at most once per day, retaining the newest seven copies. It skips backup if the database does not exist yet. Admin and `cli.py scrape` do not invoke this backup wrapper.
+`fetch_articles.py` calls the SQLite online backup API before fetching. Backups live in `BACKUP_DIR` (default: root `backups/`) as `groundednews-YYYY-MM-DD.db`, at most once per day, retaining the newest seven copies. It skips backup if the database does not exist yet. Admin and `cli.py scrape` do not invoke this backup wrapper.
 
 ```bash
 cd /absolute/path/to/groundednews
@@ -224,7 +210,7 @@ venv/bin/python backend/backup_db.py --force   # Replace today's backup
 
 For a native restore, stop the web app and any routines, preserve the current database, and copy the chosen backup over the configured database file before restarting. Online backups are safe while the app runs; ordinary file copies of the live database are not.
 
-In Docker, the daily backup helper writes under `/app/backups`, which is **not** the Compose data volume and may not be writable by the image's non-root user. Do not assume automatic backups are persistent or available there; arrange a writable persistent backup mount if using that helper, or stop the container and back up the `/data` volume externally.
+In Docker, backups are written to `/data/backups` in the data volume, so they persist with the database but share its fate: `docker compose down -v` deletes both. Keep copies off the volume for data you care about, for example `docker compose cp groundednews:/data/backups ./groundednews-backups`.
 
 Environment files, databases, and native backups are ignored by Git. Keep scratch outputs outside the checkout, and maintain independent backups for data you care about.
 

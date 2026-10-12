@@ -64,6 +64,9 @@ def test_container_serves_ui_api_and_persists_sqlite():
         assert any(source["id"] == source_id and source["name"] == name for source in sources)
         assert docker("exec", name, "id", "-u") == "10001"
         assert docker("exec", name, "test", "-f", "/data/groundednews.db") == ""
+        assert name in docker("exec", name, "python", "/app/cli.py", "sources")
+        docker("exec", name, "python", "/app/backend/backup_db.py")
+        assert docker("exec", name, "ls", "/data/backups").startswith("groundednews-")
     finally:
         subprocess.run(["docker", "rm", "-f", name], check=False)
         subprocess.run(["docker", "volume", "rm", volume], check=False)
