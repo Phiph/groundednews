@@ -45,7 +45,7 @@ database.init_db()
 def clean_db():
     """Empty every table before each test, so tests can't see each other's rows."""
     with database.engine.begin() as conn:
-        for table in ("article", "cluster", "scraperun", "source", "story_fts"):
+        for table in ("article", "cluster", "scraperun", "source", "story_fts", "writeup"):
             conn.exec_driver_sql(f"DELETE FROM {table}")
     yield
 

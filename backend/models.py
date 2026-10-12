@@ -1,5 +1,6 @@
 from typing import Optional
 from pydantic import ConfigDict, NaiveDatetime
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel, Relationship
 from timeutil import utcnow
 
@@ -72,6 +73,23 @@ class Cluster(SQLModel, table=True):
     last_updated: NaiveDatetime = Field(default_factory=utcnow, index=True)
 
     articles: list[Article] = Relationship(back_populates="cluster")
+
+
+class Writeup(SQLModel, table=True):
+    """A longer AI-written piece the site shows: a story write-up, a day's briefing or an
+    ongoing thread's summary. Written through the MCP server (mcp_server.py); see writeups.py."""
+    __table_args__ = (UniqueConstraint("kind", "subject"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    kind: str = Field(index=True)   # "story" | "briefing" | "thread"
+    subject: str                    # cluster id, UTC date "YYYY-MM-DD", or tag name
+    title: str = ""
+    body: str = ""                  # Markdown
+    author: str = "routine"         # "routine" (scheduled task) | "session" (interactive)
+    # The subject's article count when written; more articles since means it's stale
+    basis_count: int = 0
+    created_at: NaiveDatetime = Field(default_factory=utcnow)
+    updated_at: NaiveDatetime = Field(default_factory=utcnow)
 
 
 class ScrapeRunBase(SQLModel):

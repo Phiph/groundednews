@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from datetime import datetime
 from sqlmodel import Session, select
 from database import init_db, engine
-from models import Article, Cluster, ScrapeRun
+from models import Article, Cluster, ScrapeRun, Writeup
 from timeutil import utcnow
 
 
@@ -128,6 +128,11 @@ def save_clusters(run_id: int, clusters_data: list):
                 _refresh_counts(session, old)
                 if old.article_count == 0:
                     session.delete(old)
+                    # Its write-up goes too, so a later story can't inherit it with the id
+                    for writeup in session.exec(
+                        select(Writeup).where(Writeup.kind == "story", Writeup.subject == str(old_id))
+                    ).all():
+                        session.delete(writeup)
                     removed += 1
                 else:
                     session.add(old)
@@ -141,8 +146,10 @@ def save_clusters(run_id: int, clusters_data: list):
             session.add(run)
 
         session.commit()
-    print(json.dumps({"clusters_created": created, "clusters_updated": updated,
-                      "clusters_removed": removed, "framings_written": framed}))
+    counts = {"clusters_created": created, "clusters_updated": updated,
+              "clusters_removed": removed, "framings_written": framed}
+    print(json.dumps(counts))
+    return counts
 
 
 def _load(arg: str) -> list:
