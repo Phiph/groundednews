@@ -23,6 +23,8 @@ export type Briefing = Schemas["Briefing"];
 export type QualityDay = Schemas["QualityDay"];
 export type SearchResults = Schemas["SearchResults"];
 export type Stats = Schemas["Stats"];
+/** A longer AI-written piece (Markdown): story write-up, day's briefing or thread summary. */
+export type Writeup = Schemas["Writeup"];
 
 export type Side = "left" | "center" | "right";
 export type OpinionFilter = "exclude" | "only";
@@ -88,4 +90,13 @@ export const api = {
   getBriefing: () => apiFetch<Briefing>("/api/briefing"),
   getQuality: (days = 14) => apiFetch<QualityDay[]>(`/api/stats/quality?days=${days}`),
   getTags: (days = 7) => apiFetch<TagCount[]>(`/api/tags?days=${days}`),
+  /** A thread's "where things stand" summary, or null if none has been written. */
+  getThreadWriteup: async (tag: string): Promise<Writeup | null> => {
+    try {
+      return await apiFetch<Writeup>(`/api/threads/${encodeURIComponent(tag)}`);
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith("API error 404")) return null;
+      throw e;
+    }
+  },
 };

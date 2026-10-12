@@ -13,6 +13,7 @@ import { FramingCard } from "@/components/news/framing-card";
 import { StoryCard } from "@/components/news/story-card";
 import { StoryRowSkeleton } from "@/components/news/story-skeleton";
 import { TagLink } from "@/components/news/tag-link";
+import { WriteupCard } from "@/components/news/writeup-card";
 
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${n === 1 ? word : `${word}s`}`;
 
@@ -52,6 +53,7 @@ export default function BriefingPage() {
           )}
         </p>
       </header>
+      <WriteupCard writeup={b.writeup} />
 
       <section aria-labelledby="top-stories" className="space-y-2">
         <h2 id="top-stories" className="font-heading text-xl font-bold tracking-tight">Top stories</h2>
